@@ -38,6 +38,7 @@ Build-Depends-Indep:
  python3-breathe <!nodoc>,
  python3-doc <!nodoc>,
  python3-ipython <!nodoc>,
+ python3-matplotlib <!nodoc>,
  python3-numpydoc <!nodoc>,
  python3-pickleshare <!nodoc>,
  python3-pydata-sphinx-theme <!nodoc>,
@@ -80,6 +81,26 @@ Description: ${source:Synopsis} (Python 3)
  ${source:Extended-Description}
  .
  This package installs NumPy for Python 3.
+
+Package: python-numpy-doc
+Depends:
+ ${misc:Depends},
+ ${sphinxdoc:Depends},
+Suggests:
+ python-imageio-doc,
+ python-pandas-doc,
+ python-pytest-doc,
+ python-scipy-doc,
+ python-skimage-doc,
+ python3-doc,
+Section: doc
+Architecture: all
+Multi-Arch: foreign
+Build-Profiles: <!nodoc>
+Description: ${source:Synopsis} (Documentation)
+ ${source:Extended-Description}
+ .
+ This package contains documentation for NumPy and f2py.
 
 Package: python3-numpy-dev
 Architecture: any
