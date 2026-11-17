@@ -1,3 +1,12 @@
+numpy (1:2.2.3+ds-4deepin3) unstable; urgency=medium
+
+  * Drop --config-setting build-dir from PYBUILD_BUILD_ARGS. dh-python 7
+    passes its own build-dir to meson-python, and two values make the
+    build fail ("Only one value for build-dir can be specified").
+    Backported from Debian 1:2.3.5+ds-3 (Closes: #1124186).
+
+ -- purofle <purofle@gmail.com>  Tue, 17 Nov 2026 18:24:32 +0800
+
 numpy (1:2.2.3+ds-4deepin2) unstable; urgency=medium
 
   * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).

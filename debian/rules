@@ -62,7 +62,6 @@ ifeq ($(PYBUILD_AUTOPKGTEST),1)
 SKIP_TESTS += test_dict_mode
 endif
 
-export PYBUILD_BUILD_ARGS = --config-setting build-dir={dir}/.mesonpy
 export PYBUILD_TEST_ARGS = $(if $(SKIP_TESTS),-k 'not ($(call concat_with,$(space)or$(space),$(SKIP_TESTS)))')
 ifeq ($(PYBUILD_AUTOPKGTEST),1)
 PYBUILD_TEST_ARGS += /usr/lib/python3/dist-packages/numpy
@@ -72,7 +71,7 @@ ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
 export PYBUILD_BEFORE_BUILD = meson env2mfile --debarch $(DEB_HOST_ARCH) --cross -o {dir}/debian/meson-cross.txt \
 	&& python3 {dir}/debian/helpers/add_longdouble_format_property.py {dir}/debian/meson-cross.txt $(DEB_HOST_ARCH)
 export PYBUILD_AFTER_BUILD = rm {dir}/debian/meson-cross.txt
-PYBUILD_BUILD_ARGS += --config-setting setup-args=--cross-file={dir}/debian/meson-cross.txt
+export PYBUILD_BUILD_ARGS = --config-setting setup-args=--cross-file={dir}/debian/meson-cross.txt
 endif
 
 # Helper variables
