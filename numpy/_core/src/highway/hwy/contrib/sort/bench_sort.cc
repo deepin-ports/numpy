@@ -33,11 +33,8 @@
 #include "hwy/tests/test_util-inl.h"
 #include "hwy/nanobenchmark.h"
 #include "hwy/timer.h"
+#include "hwy/contrib/thread_pool/futex.h"  // NanoSleep
 // clang-format on
-
-#if HWY_OS_LINUX
-#include <unistd.h>  // usleep
-#endif
 
 // Mode for larger sorts because M1 is able to access more than the per-core
 // share of L2, so 1M elements might still be in cache.
@@ -133,10 +130,8 @@ HWY_NOINLINE void BenchAllColdSort() {
           elapsed * 1E9, static_cast<double>(items[Random32(&rng) % kSize]));
 
 #if SORT_ONLY_COLD
-#if HWY_OS_LINUX
   // Long enough for the CPU to switch off AVX-512 mode before the next run.
-  usleep(100 * 1000);  // NOLINT
-#endif
+  NanoSleep(100 * 1000 * 1000);
 #endif
 }
 
@@ -365,7 +360,6 @@ enum class BenchmarkModes {
 std::vector<size_t> SizesToBenchmark(BenchmarkModes mode) {
   std::vector<size_t> sizes;
   switch (mode) {
-    default:
     case BenchmarkModes::kDefault:
 #if HAVE_PARALLEL_IPS4O || SORT_100M
       sizes.push_back(100 * 1000 * size_t{1000});
@@ -415,7 +409,7 @@ std::vector<size_t> SizesToBenchmark(BenchmarkModes mode) {
 HWY_NOINLINE void BenchAllSort() {
   // Not interested in benchmark results for these targets. Note that SSE4 is
   // numerically less than SSE2, hence it is the lower bound.
-  if (HWY_SSE4 <= HWY_TARGET && HWY_TARGET <= HWY_SSE2) {
+  if (HWY_SSE4 <= HWY_TARGET && HWY_TARGET <= HWY_SSE2 && Unpredictable1()) {
     return;
   }
 #if HAVE_INTEL

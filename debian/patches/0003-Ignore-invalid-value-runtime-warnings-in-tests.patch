@@ -7,7 +7,7 @@ Subject: Ignore invalid value runtime warnings in tests
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/pytest.ini b/pytest.ini
-index 7154264..38e69ec 100644
+index b8a1da2..0c42ef7 100644
 --- a/pytest.ini
 +++ b/pytest.ini
 @@ -11,8 +11,9 @@ filterwarnings =

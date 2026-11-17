@@ -1,0 +1,86 @@
+From: =?utf-8?q?Timo_R=C3=B6hling?= <roehling@debian.org>
+Date: Thu, 23 Jul 2026 15:36:34 +0200
+Subject: Make x86 CPU baseline policy compliant
+
+---
+ meson_cpu/meson.build                     |  4 ++--
+ meson_cpu/x86/meson.build                 | 10 +++++++++-
+ numpy/_core/src/common/npy_cpu_features.c |  2 ++
+ numpy/_core/src/common/npy_cpu_features.h |  1 +
+ 4 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/meson_cpu/meson.build b/meson_cpu/meson.build
+index 02bbe5f..31a7fad 100644
+--- a/meson_cpu/meson.build
++++ b/meson_cpu/meson.build
+@@ -96,8 +96,8 @@ CPU_FEATURES_REDIRECT += X86_REDIRECT
+ cpu_family = host_machine.cpu_family()
+ # Used by build option 'min'
+ min_features = {
+-  'x86': [X86_V2],
+-  'x86_64': [X86_V2],
++  'x86': [X86_DEBIAN],
++  'x86_64': [X86_DEBIAN],
+   'ppc64': [],
+   's390x': [],
+   'arm': [],
+diff --git a/meson_cpu/x86/meson.build b/meson_cpu/x86/meson.build
+index add0733..fca04ad 100644
+--- a/meson_cpu/x86/meson.build
++++ b/meson_cpu/x86/meson.build
+@@ -3,6 +3,13 @@ current_dir = meson.current_source_dir()
+ cpu_family = host_machine.cpu_family()
+ mod_features = import('features')
+ 
++X86_DEBIAN_FLAGS = cpu_family == 'x86' ? ['-mfpmath=sse'] : []
++X86_DEBIAN = mod_features.new(
++  'X86_DEBIAN', 1, args: ['-msse', '-msse2'] + X86_DEBIAN_FLAGS,
++  group: ['SSE', 'SSE2'],
++  detect: 'X86_DEBIAN',
++  test_code: files(source_root + '/numpy/distutils/checks/cpu_sse2.c')[0],
++)
+ HWY_SSE4_FLAGS = ['-DHWY_WANT_SSE4', '-DHWY_DISABLE_PCLMUL_AES']
+ # Use SSE for floating-point on x86-32 to ensure numeric consistency.
+ # The x87 FPU's 80-bit internal precision causes unpredictable rounding
+@@ -11,7 +18,7 @@ HWY_SSE4_FLAGS = ['-DHWY_WANT_SSE4', '-DHWY_DISABLE_PCLMUL_AES']
+ X86_64_V2_FLAGS = cpu_family == 'x86'? ['-mfpmath=sse'] : ['-mcx16']
+ X86_64_V2_NAMES = cpu_family == 'x86'? [] : ['CX16']
+ X86_V2 = mod_features.new(
+-  'X86_V2', 1, args: ['-msse', '-msse2', '-msse3', '-mssse3', '-msse4.1', '-msse4.2',
++  'X86_V2', 2, args: ['-msse', '-msse2', '-msse3', '-mssse3', '-msse4.1', '-msse4.2',
+                       '-mpopcnt', '-msahf'] + X86_64_V2_FLAGS + HWY_SSE4_FLAGS,
+   # Adds compiler definitions `NPY_HAVE_SSE*` 
+   group: ['SSE', 'SSE2', 'SSE3', 'SSSE3', 'SSE41', 'SSE42', 'POPCNT', 'LAHF'] + X86_64_V2_NAMES,
+@@ -104,6 +111,7 @@ X86_REDIRECT = {
+ }
+ 
+ X86_FEATURES = {
++  'X86_DEBIAN': X86_DEBIAN,
+   'X86_V2': X86_V2, 'X86_V3': X86_V3, 'X86_V4': X86_V4,
+   'AVX512_ICL': AVX512_ICL, 'AVX512_SPR': AVX512_SPR
+ }
+diff --git a/numpy/_core/src/common/npy_cpu_features.c b/numpy/_core/src/common/npy_cpu_features.c
+index faffb7f..3fae252 100644
+--- a/numpy/_core/src/common/npy_cpu_features.c
++++ b/numpy/_core/src/common/npy_cpu_features.c
+@@ -571,6 +571,8 @@ npy__cpu_init_features(void)
+     }
+ 
+     // Groups
++    npy__cpu_have[NPY_CPU_FEATURE_X86_DEBIAN] = npy__cpu_have[NPY_CPU_FEATURE_SSE] &&
++                                                npy__cpu_have[NPY_CPU_FEATURE_SSE2];
+     npy__cpu_have[NPY_CPU_FEATURE_X86_V2] = npy__cpu_have[NPY_CPU_FEATURE_SSE] &&
+                                             npy__cpu_have[NPY_CPU_FEATURE_SSE2] &&
+                                             npy__cpu_have[NPY_CPU_FEATURE_SSE3] &&
+diff --git a/numpy/_core/src/common/npy_cpu_features.h b/numpy/_core/src/common/npy_cpu_features.h
+index de05a17..8684fcd 100644
+--- a/numpy/_core/src/common/npy_cpu_features.h
++++ b/numpy/_core/src/common/npy_cpu_features.h
+@@ -55,6 +55,7 @@ enum npy_cpu_features
+ 
+ 
+     // X86 CPU Groups
++    NPY_CPU_FEATURE_X86_DEBIAN        = 100,
+     // Knights Landing (F,CD,ER,PF)
+     NPY_CPU_FEATURE_AVX512_KNL        = 101,
+     // Knights Mill    (F,CD,ER,PF,4FMAPS,4VNNIW,VPOPCNTDQ)

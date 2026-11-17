@@ -53,9 +53,9 @@ class CLikeCompilerArgs(arglist.CompilerArgs):
 
     # NOTE: not thorough. A list of potential corner cases can be found in
     # https://github.com/mesonbuild/meson/pull/4593#pullrequestreview-182016038
-    dedup1_prefixes = ('-l', '-Wl,-l', '-Wl,--export-dynamic')
+    dedup1_prefixes = ('-l', '-Wl,-l', '-Wl,-rpath,', '-Wl,-rpath-link,')
     dedup1_suffixes = ('.lib', '.dll', '.so', '.dylib', '.a')
-    dedup1_args = ('-c', '-S', '-E', '-pipe', '-pthread')
+    dedup1_args = ('-c', '-S', '-E', '-pipe', '-pthread', '-Wl,--export-dynamic')
 
     def to_native(self, copy: bool = False) -> T.List[str]:
         # This seems to be allowed, but could never work?
@@ -128,7 +128,7 @@ class CLikeCompiler(Compiler):
         warn_args: T.Dict[str, T.List[str]] = {}
 
     # TODO: Replace this manual cache with functools.lru_cache
-    find_library_cache: T.Dict[T.Tuple[T.Tuple[str, ...], str, T.Tuple[str, ...], str, LibType], T.Optional[T.List[str]]] = {}
+    find_library_cache: T.Dict[T.Tuple[T.Tuple[str, ...], str, T.Tuple[str, ...], str, LibType, bool], T.Optional[T.List[str]]] = {}
     find_framework_cache: T.Dict[T.Tuple[T.Tuple[str, ...], str, T.Tuple[str, ...], bool], T.Optional[T.List[str]]] = {}
     internal_libs = arglist.UNIXY_COMPILER_INTERNAL_LIBS
 
@@ -307,22 +307,7 @@ class CLikeCompiler(Compiler):
         mlog.debug('-----')
         if pc.returncode != 0:
             raise mesonlib.EnvironmentException(f'Compiler {self.name_string()} cannot compile programs.')
-        # Run sanity check
-        if self.is_cross:
-            if not environment.has_exe_wrapper():
-                # Can't check if the binaries run so we have to assume they do
-                return
-            cmdlist = environment.exe_wrapper.get_command() + [binary_name]
-        else:
-            cmdlist = [binary_name]
-        mlog.debug('Running test binary command: ', mesonlib.join_args(cmdlist))
-        try:
-            # fortran code writes to stdout
-            pe = subprocess.run(cmdlist, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise mesonlib.EnvironmentException(f'Could not invoke sanity test executable: {e!s}.')
-        if pe.returncode != 0:
-            raise mesonlib.EnvironmentException(f'Executables created by {self.language} compiler {self.name_string()} are not runnable.')
+        self.run_sanity_check(environment, [binary_name], work_dir)
 
     def sanity_check(self, work_dir: str, environment: 'Environment') -> None:
         code = 'int main(void) { int class=0; return class; }\n'
@@ -378,7 +363,7 @@ class CLikeCompiler(Compiler):
             try:
                 crt_val = env.coredata.optstore.get_value('b_vscrt')
                 buildtype = env.coredata.optstore.get_value('buildtype')
-                cargs += self.get_crt_compile_args(crt_val, buildtype)
+                cargs += self.get_crt_compile_args(crt_val, buildtype) # type: ignore[arg-type]
             except (KeyError, AttributeError):
                 pass
 
@@ -475,6 +460,21 @@ class CLikeCompiler(Compiler):
         if isinstance(guess, int):
             if self._compile_int(f'{expression} == {guess}', prefix, env, extra_args, dependencies):
                 return guess
+
+        # Try to expand the expression and evaluate it on the build machines compiler
+        if self.language in env.coredata.compilers.build:
+            try:
+                expanded, _ = self.get_define(expression, prefix, env, extra_args, dependencies, False)
+                evaluate_expanded = f'''
+                #include <stdio.h>
+                #include <stdint.h>
+                int main(void) {{ int expression = {expanded}; printf("%d", expression); return 0; }}'''
+                run = env.coredata.compilers.build[self.language].run(evaluate_expanded, env)
+                if run and run.compiled and run.returncode == 0:
+                    if self._compile_int(f'{expression} == {run.stdout}', prefix, env, extra_args, dependencies):
+                        return int(run.stdout)
+            except mesonlib.EnvironmentException:
+                pass
 
         # If no bounds are given, compute them in the limit of int32
         maxint = 0x7fffffff
@@ -1034,8 +1034,8 @@ class CLikeCompiler(Compiler):
         elif env.machines[self.for_machine].is_cygwin():
             shlibext = ['dll', 'dll.a']
             prefixes = ['cyg'] + prefixes
-        elif self.id.lower() == 'c6000' or self.id.lower() == 'ti':
-            # TI C6000 compiler can use both extensions for static or dynamic libs.
+        elif self.id.lower() in {'c6000', 'c2000', 'ti'}:
+            # TI C28x compilers can use both extensions for static or dynamic libs.
             stlibext = ['a', 'lib']
             shlibext = ['dll', 'so']
         else:
@@ -1075,17 +1075,17 @@ class CLikeCompiler(Compiler):
         return sorted(filtered, key=tuple_key, reverse=True)
 
     @classmethod
-    def _get_trials_from_pattern(cls, pattern: str, directory: str, libname: str) -> T.List[Path]:
-        f = Path(directory) / pattern.format(libname)
+    def _get_trials_from_pattern(cls, pattern: str, directory: str, libname: str) -> T.List[str]:
+        f = os.path.join(directory, pattern.format(libname))
         # Globbing for OpenBSD
         if '*' in pattern:
             # NOTE: globbing matches directories and broken symlinks
             # so we have to do an isfile test on it later
-            return [Path(x) for x in cls._sort_shlibs_openbsd(glob.glob(str(f)))]
+            return cls._sort_shlibs_openbsd(glob.glob(f))
         return [f]
 
     @staticmethod
-    def _get_file_from_list(env: Environment, paths: T.List[Path]) -> T.Optional[Path]:
+    def _get_file_from_list(env: Environment, paths: T.List[str]) -> T.Optional[Path]:
         '''
         We just check whether the library exists. We can't do a link check
         because the library might have unresolved symbols that require other
@@ -1093,16 +1093,16 @@ class CLikeCompiler(Compiler):
         architecture.
         '''
         for p in paths:
-            if p.is_file():
+            if os.path.isfile(p):
 
                 if env.machines.host.is_darwin() and env.machines.build.is_darwin():
                     # Run `lipo` and check if the library supports the arch we want
-                    archs = mesonlib.darwin_get_object_archs(str(p))
+                    archs = mesonlib.darwin_get_object_archs(p)
                     if not archs or env.machines.host.cpu_family not in archs:
                         mlog.debug(f'Rejected {p}, supports {archs} but need {env.machines.host.cpu_family}')
                         continue
 
-                return p
+                return Path(p)
 
         return None
 
@@ -1113,7 +1113,7 @@ class CLikeCompiler(Compiler):
         '''
         return self.sizeof('void *', '', env)[0] == 8
 
-    def _find_library_real(self, libname: str, env: 'Environment', extra_dirs: T.List[str], code: str, libtype: LibType, lib_prefix_warning: bool) -> T.Optional[T.List[str]]:
+    def _find_library_real(self, libname: str, env: 'Environment', extra_dirs: T.List[str], code: str, libtype: LibType, lib_prefix_warning: bool, ignore_system_dirs: bool) -> T.Optional[T.List[str]]:
         # First try if we can just add the library as -l.
         # Gcc + co seem to prefer builtin lib dirs to -L dirs.
         # Only try to find std libs if no extra dirs specified.
@@ -1144,7 +1144,7 @@ class CLikeCompiler(Compiler):
         except (mesonlib.MesonException, KeyError): # TODO evaluate if catching KeyError is wanted here
             elf_class = 0
         # Search in the specified dirs, and then in the system libraries
-        for d in itertools.chain(extra_dirs, self.get_library_dirs(env, elf_class)):
+        for d in itertools.chain(extra_dirs, [] if ignore_system_dirs else self.get_library_dirs(env, elf_class)):
             for p in patterns:
                 trials = self._get_trials_from_pattern(p, d, libname)
                 if not trials:
@@ -1158,15 +1158,15 @@ class CLikeCompiler(Compiler):
         return None
 
     def _find_library_impl(self, libname: str, env: 'Environment', extra_dirs: T.List[str],
-                           code: str, libtype: LibType, lib_prefix_warning: bool) -> T.Optional[T.List[str]]:
+                           code: str, libtype: LibType, lib_prefix_warning: bool, ignore_system_dirs: bool) -> T.Optional[T.List[str]]:
         # These libraries are either built-in or invalid
         if libname in self.ignore_libs:
             return []
         if isinstance(extra_dirs, str):
             extra_dirs = [extra_dirs]
-        key = (tuple(self.exelist), libname, tuple(extra_dirs), code, libtype)
+        key = (tuple(self.exelist), libname, tuple(extra_dirs), code, libtype, ignore_system_dirs)
         if key not in self.find_library_cache:
-            value = self._find_library_real(libname, env, extra_dirs, code, libtype, lib_prefix_warning)
+            value = self._find_library_real(libname, env, extra_dirs, code, libtype, lib_prefix_warning, ignore_system_dirs)
             self.find_library_cache[key] = value
         else:
             value = self.find_library_cache[key]
@@ -1175,9 +1175,9 @@ class CLikeCompiler(Compiler):
         return value.copy()
 
     def find_library(self, libname: str, env: 'Environment', extra_dirs: T.List[str],
-                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True) -> T.Optional[T.List[str]]:
+                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True, ignore_system_dirs: bool = False) -> T.Optional[T.List[str]]:
         code = 'int main(void) { return 0; }\n'
-        return self._find_library_impl(libname, env, extra_dirs, code, libtype, lib_prefix_warning)
+        return self._find_library_impl(libname, env, extra_dirs, code, libtype, lib_prefix_warning, ignore_system_dirs)
 
     def find_framework_paths(self, env: 'Environment') -> T.List[str]:
         '''
@@ -1269,9 +1269,24 @@ class CLikeCompiler(Compiler):
         for arg in args:
             # some compilers, e.g. GCC, don't warn for unsupported warning-disable
             # flags, so when we are testing a flag like "-Wno-forgotten-towel", also
-            # check the equivalent enable flag too "-Wforgotten-towel"
+            # check the equivalent enable flag too "-Wforgotten-towel".
             if arg.startswith('-Wno-'):
-                new_args.append('-W' + arg[5:])
+                # Make an exception for -Wno-attributes=x as -Wattributes=x is invalid
+                # for GCC at least.  Also, the positive form of some flags require a
+                # value to be specified, i.e. we need to pass -Wfoo=N rather than just
+                # -Wfoo.
+                if arg.startswith('-Wno-attributes='):
+                    pass
+                elif arg in {'-Wno-alloc-size-larger-than',
+                             '-Wno-alloca-larger-than',
+                             '-Wno-frame-larger-than',
+                             '-Wno-stack-usage',
+                             '-Wno-vla-larger-than'}:
+                    # Pass an arbitrary value to the enabling flag; since the test program
+                    # is trivial, it is unlikely to provoke any of these warnings.
+                    new_args.append('-W' + arg[5:] + '=1000')
+                else:
+                    new_args.append('-W' + arg[5:])
             if arg.startswith('-Wl,'):
                 mlog.warning(f'{arg} looks like a linker argument, '
                              'but has_argument and other similar methods only '

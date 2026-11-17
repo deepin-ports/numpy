@@ -2,16 +2,24 @@ From: Sandro Tosi <morph@debian.org>
 Date: Sun, 3 Dec 2023 11:24:19 -0400
 Subject: Disable unsupported add-ons in documentation
 
+Forwarded: not-needed
 ---
- doc/source/conf.py              | 3 ---
- doc/source/release/template.rst | 2 +-
- 2 files changed, 1 insertion(+), 4 deletions(-)
+ doc/source/conf.py | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
 
 diff --git a/doc/source/conf.py b/doc/source/conf.py
-index 59cd5a2..2577faf 100644
+index 94e3a9f..9900e17 100644
 --- a/doc/source/conf.py
 +++ b/doc/source/conf.py
-@@ -252,9 +252,6 @@ html_theme_options = {
+@@ -110,7 +110,6 @@ extensions = [
+     'sphinx_copybutton',
+     'sphinx_design',
+     'sphinx.ext.imgconverter',
+-    'jupyterlite_sphinx',
+ ]
+ 
+ skippable_extensions = [
+@@ -292,9 +291,6 @@ html_theme_options = {
      "header_links_before_dropdown": 6,
      # Add light/dark mode and documentation version switcher:
      "navbar_end": [
@@ -21,13 +29,12 @@ index 59cd5a2..2577faf 100644
          "navbar-icon-links"
      ],
      "navbar_persistent": [],
-diff --git a/doc/source/release/template.rst b/doc/source/release/template.rst
-index a3364da..76ac0c9 100644
---- a/doc/source/release/template.rst
-+++ b/doc/source/release/template.rst
-@@ -18,4 +18,4 @@ Highlights
- 
- .. **Content from release note snippets in doc/release/upcoming_changes:**
- 
--.. include:: notes-towncrier.rst
-+ .. include:: notes-towncrier.rst
+@@ -302,7 +298,7 @@ html_theme_options = {
+         "version_match": switcher_version,
+         "json_url": "https://numpy.org/doc/_static/versions.json",
+     },
+-    "show_version_warning_banner": True,
++    "show_version_warning_banner": False,
+     "analytics": {
+         "plausible_analytics_domain": "numpy.org/doc/stable/",
+         "plausible_analytics_url": ("https://views.scientific-python.org/js/script.js"),

@@ -1,0 +1,32 @@
+From: =?utf-8?q?Timo_R=C3=B6hling?= <roehling@debian.org>
+Date: Sat, 18 Oct 2025 10:52:50 +0200
+Subject: Make random numbers in documentation reproducible
+
+Forwarded: https://github.com/numpy/numpy/pull/30023
+---
+ doc/source/conf.py | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/doc/source/conf.py b/doc/source/conf.py
+index 1e0a2cb..58762fd 100644
+--- a/doc/source/conf.py
++++ b/doc/source/conf.py
+@@ -659,3 +659,18 @@ try_examples_global_warning_text = (
+     " report them on the"
+     " [NumPy issue tracker](https://github.com/numpy/numpy/issues)."
+ )
++
++
++# -----------------------------------------------------------------------------
++# Reproducible builds
++# -----------------------------------------------------------------------------
++
++# Seed the random number generators with a fixed value to make build results
++# reproducible. The actual seed does not matter as long as it is deterministic.
++
++# Seed legacy RNG
++numpy.random.seed(42)
++# Monkeypatch default_rng to return a deterministically seeded instance
++numpy.random.default_rng = \
++    lambda seed=None, actual_default_rng=numpy.random.default_rng: \
++        actual_default_rng(seed if seed is not None else 42)

@@ -7,7 +7,8 @@ include /usr/share/dpkg/pkg-info.mk
 # creating 5 GB files.
 SKIP_TESTS = \
 	test_big_arrays \
-	test_large_file_support
+	test_large_file_support \
+	test_configtool
 # Some tests have architecture-specific issues. Generally, these are related to
 # unexpected behavior of floating point operations (unexpected for the unit
 # tests, that is).
@@ -37,6 +38,10 @@ ifeq ($(DEB_HOST_ARCH_BITS),32)
 SKIP_TESTS += \
 	test_huge_vectordot
 endif
+ifneq ($(filter armel,$(DEB_HOST_ARCH)),)
+SKIP_TESTS += \
+	test_dot_errstate
+endif
 ifneq ($(filter mips64el,$(DEB_HOST_ARCH)),)
 SKIP_TESTS += \
 	NanFunctions \
@@ -57,6 +62,28 @@ endif
 ifneq ($(filter powerpc,$(DEB_HOST_ARCH)),)
 SKIP_TESTS += \
 	test_linalg
+endif
+ifneq ($(filter ppc64el,$(DEB_HOST_ARCH)),)
+SKIP_TESTS += \
+	test_cpu_features \
+	test_ppc64_ibm_double_double128 \
+	test_linear_interpolation_formula_symmetric
+endif
+ifneq ($(filter riscv64,$(DEB_HOST_ARCH)),)
+SKIP_TESTS += \
+	test_unary_spurious_fpexception
+endif
+ifneq ($(filter s390x,$(DEB_HOST_ARCH)),)
+SKIP_TESTS += \
+	test_cpu_features
+endif
+ifneq ($(filter hurd,$(DEB_HOST_ARCH_OS)),)
+SKIP_TESTS += \
+	test_tuple_recursion
+endif
+ifneq ($(filter x32,$(DEB_HOST_ARCH)),)
+SKIP_TESTS += \
+	test_advance_symmetry
 endif
 ifeq ($(PYBUILD_AUTOPKGTEST),1)
 SKIP_TESTS += test_dict_mode
@@ -96,13 +123,9 @@ auto-build-for-other-python:
 override_dh_auto_build-arch: auto-build-for-default-python auto-build-for-other-python
 	true
 
+# deepin: python-numpy-doc is dropped while bootstrapping Python 3.14
+# (the doc build needs python3-matplotlib, which build-depends on numpy).
 override_dh_auto_build-indep: auto-build-for-default-python
-	$(MAKE) -C doc html \
-		GITVER=Unknown \
-		MPLCONFIGDIR=. \
-		SPHINXOPTS= \
-		PYTHON=python3 \
-		PYTHONPATH=$(shell pybuild --print {build_dir} --interpreter python3)
 
 # Nothing to install for -indep
 override_dh_auto_install-indep:

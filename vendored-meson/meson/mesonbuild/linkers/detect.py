@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from .base import RSPFileSyntax
 from .. import mlog
 from ..mesonlib import (
     EnvironmentException,
@@ -38,7 +39,12 @@ def guess_win_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
                      use_linker_prefix: bool = True, invoked_directly: bool = True,
                      extra_args: T.Optional[T.List[str]] = None) -> 'DynamicLinker':
     from . import linkers
-    env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+    env.add_lang_args(comp_class.language, comp_class, for_machine)
+
+    if invoked_directly or comp_class.get_argument_syntax() == 'msvc':
+        rsp_syntax = RSPFileSyntax.MSVC
+    else:
+        rsp_syntax = RSPFileSyntax.GCC
 
     # Explicitly pass logo here so that we can get the version of link.exe
     if not use_linker_prefix or comp_class.LINKER_PREFIX is None:
@@ -71,7 +77,8 @@ def guess_win_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
         elif not invoked_directly:
             return linkers.ClangClDynamicLinker(
                 for_machine, override, exelist=compiler, prefix=comp_class.LINKER_PREFIX,
-                version=search_version(o), direct=False, machine=None)
+                version=search_version(o), direct=False, machine=None,
+                rsp_syntax=rsp_syntax)
 
     if value is not None and invoked_directly:
         compiler = value
@@ -82,7 +89,8 @@ def guess_win_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
         return linkers.ClangClDynamicLinker(
             for_machine, [],
             prefix=comp_class.LINKER_PREFIX if use_linker_prefix else [],
-            exelist=compiler, version=search_version(o), direct=invoked_directly)
+            exelist=compiler, version=search_version(o), direct=invoked_directly,
+            rsp_syntax=rsp_syntax)
     elif 'OPTLINK' in o:
         # Optlink's stdout *may* begin with a \r character.
         return linkers.OptlinkDynamicLinker(compiler, for_machine, version=search_version(o))
@@ -97,7 +105,8 @@ def guess_win_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
         return linkers.MSVCDynamicLinker(
             for_machine, [], machine=target, exelist=compiler,
             prefix=comp_class.LINKER_PREFIX if use_linker_prefix else [],
-            version=search_version(out), direct=invoked_directly)
+            version=search_version(out), direct=invoked_directly,
+            rsp_syntax=rsp_syntax)
     elif 'GNU coreutils' in o:
         import shutil
         fullpath = shutil.which(compiler[0])
@@ -119,9 +128,10 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
     :extra_args: Any additional arguments required (such as a source file)
     """
     from . import linkers
-    env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+    env.add_lang_args(comp_class.language, comp_class, for_machine)
     extra_args = extra_args or []
 
+    system = env.machines[for_machine].system
     ldflags = env.coredata.get_external_link_args(for_machine, comp_class.language)
     extra_args += comp_class._unix_args_to_native(ldflags, env.machines[for_machine])
 
@@ -155,6 +165,9 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
             lld_cls = linkers.LLVMDynamicLinker
 
         linker = lld_cls(
+            compiler, for_machine, comp_class.LINKER_PREFIX, override, system=system, version=v)
+    elif o.startswith("eld"):
+        linker = linkers.ELDDynamicLinker(
             compiler, for_machine, comp_class.LINKER_PREFIX, override, version=v)
     elif 'Snapdragon' in e and 'LLVM' in e:
         linker = linkers.QualcommLLVMDynamicLinker(
@@ -213,7 +226,10 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
     elif 'xtools-' in o.split('\n', maxsplit=1)[0]:
         xtools = o.split(' ', maxsplit=1)[0]
         v = xtools.split('-', maxsplit=2)[1]
-        linker = linkers.AppleDynamicLinker(compiler, for_machine, comp_class.LINKER_PREFIX, override, version=v)
+        linker = linkers.AppleDynamicLinker(
+            compiler, for_machine, comp_class.LINKER_PREFIX, override,
+            system=system, version=v
+        )
     # detect linker on MacOS - must be after other platforms because the
     # "(use -v to see invocation)" will match clang on other platforms,
     # but the rest of the checks will fail and call __failed_to_detect_linker.
@@ -232,7 +248,10 @@ def guess_nix_linker(env: 'Environment', compiler: T.List[str], comp_class: T.Ty
                 break
         else:
             __failed_to_detect_linker(compiler, check_args, o, e)
-        linker = linkers.AppleDynamicLinker(compiler, for_machine, comp_class.LINKER_PREFIX, override, version=v)
+        linker = linkers.AppleDynamicLinker(
+            compiler, for_machine, comp_class.LINKER_PREFIX, override,
+            system=system, version=v
+        )
     else:
         __failed_to_detect_linker(compiler, check_args, o, e)
     return linker

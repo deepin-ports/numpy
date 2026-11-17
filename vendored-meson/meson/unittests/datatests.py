@@ -18,9 +18,8 @@ import mesonbuild.options
 import mesonbuild.modules.gnome
 from mesonbuild.interpreter import Interpreter
 from mesonbuild.ast import AstInterpreter
-from mesonbuild.mesonlib import (
-    MachineChoice, OptionKey
-)
+from mesonbuild.mesonlib import MachineChoice
+from mesonbuild.options import OptionKey
 from mesonbuild.compilers import (
     detect_c_compiler, detect_cpp_compiler
 )
@@ -139,9 +138,15 @@ class DataTests(unittest.TestCase):
             self.assertEqual(len(found_entries & options), 0)
             found_entries |= options
 
+        # TODO: put the module name back in the OptionKey
+        def remove_module_name(key: OptionKey) -> OptionKey:
+            if '.' in key.name:
+                return key.evolve(name=key.name.split('.', 1)[1])
+            return key
+
         self.assertEqual(found_entries, {
-            *(str(k.evolve(module=None)) for k in mesonbuild.options.BUILTIN_OPTIONS),
-            *(str(k.evolve(module=None)) for k in mesonbuild.options.BUILTIN_OPTIONS_PER_MACHINE),
+            *(str(remove_module_name(k)) for k in mesonbuild.options.BUILTIN_OPTIONS),
+            *(str(remove_module_name(k)) for k in mesonbuild.options.BUILTIN_OPTIONS_PER_MACHINE),
         })
 
         # Check that `buildtype` table inside `Core options` matches how
@@ -241,5 +246,5 @@ class DataTests(unittest.TestCase):
         del os.environ['MESON_RUNNING_IN_PROJECT_TESTS']
         env = get_fake_env()
         interp = Interpreter(FakeBuild(env))
-        astint = AstInterpreter('.', '', '')
+        astint = AstInterpreter('.', '', '', '', env)
         self.assertEqual(set(interp.funcs.keys()), set(astint.funcs.keys()))

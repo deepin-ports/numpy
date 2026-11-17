@@ -7,13 +7,19 @@ Files-Excluded:
  doc/source/_static/scipy-mathjax
 
 Files: *
-Copyright: 2005-2024, NumPy Developers <numpy-dev@numpy.org>
+Copyright: 2005-2025, NumPy Developers <numpy-dev@numpy.org>
 License: BSD-3-Clause
 
 Files: debian/*
 Copyright: 2010-2022, Sandro Tosi <morph@debian.org>
            2024, Timo Röhling <roehling@debian.org>
 License: BSD-3-Clause
+
+Files: debian/dh_numpy3
+Copyright: 2010, Piotr Ożarowski <piotr@debian.org>
+           2012, Jakub Wilk <jwilk@debian.org>
+           2025, Timo Röhling <roehling@debian.org>
+License: Expat
 
 Files: numpy/_core/include/numpy/libdivide/*
 Copyright: 2010-2019, ridiculous_fish <libdivide@ridiculousfish.com>
@@ -41,8 +47,8 @@ License: BSD-3-Clause
 Files: numpy/fft/pocketfft/*
 Copyright: 2010-2022, Max Planck Society
            2019-2020, Peter Bell
-	   2003-2007, Matteo Frigo (Massachusetts Institute of Technology)
-	   2024, Tan Ping Liang
+           2003-2007, Matteo Frigo (Massachusetts Institute of Technology)
+           2024, Tan Ping Liang
 License: BSD-3-Clause
 
 Files: numpy/linalg/lapack_lite/*

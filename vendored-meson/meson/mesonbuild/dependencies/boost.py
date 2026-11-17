@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .. import mlog
 from .. import mesonlib
+from ..options import OptionKey
 
 from .base import DependencyException, SystemDependency
 from .detect import packages
@@ -55,7 +56,7 @@ if T.TYPE_CHECKING:
 # Mac   / homebrew: libboost_<module>.dylib + libboost_<module>-mt.dylib    (location = /usr/local/lib)
 # Mac   / macports: libboost_<module>.dylib + libboost_<module>-mt.dylib    (location = /opt/local/lib)
 #
-# Its not clear that any other abi tags (e.g. -gd) are used in official packages.
+# It's not clear that any other abi tags (e.g. -gd) are used in official packages.
 #
 # On Linux systems, boost libs have multithreading support enabled, but without the -mt tag.
 #
@@ -260,7 +261,7 @@ class BoostLibraryFile():
                 update_vers(i[2:])
             elif i.isdigit():
                 update_vers(i)
-            elif len(i) >= 3 and i[0].isdigit and i[2].isdigit() and i[1] == '.':
+            elif len(i) >= 3 and i[0].isdigit() and i[2].isdigit() and i[1] == '.':
                 update_vers(i)
             else:
                 other_tags += [i]
@@ -340,7 +341,7 @@ class BoostLibraryFile():
 class BoostDependency(SystemDependency):
     def __init__(self, environment: Environment, kwargs: T.Dict[str, T.Any]) -> None:
         super().__init__('boost', environment, kwargs, language='cpp')
-        buildtype = environment.coredata.get_option(mesonlib.OptionKey('buildtype'))
+        buildtype = environment.coredata.optstore.get_value_for(OptionKey('buildtype'))
         assert isinstance(buildtype, str)
         self.debug = buildtype.startswith('debug')
         self.multithreading = kwargs.get('threading', 'multi') == 'multi'
@@ -439,6 +440,8 @@ class BoostDependency(SystemDependency):
         mlog.debug('  - potential library dirs: {}'.format([x.as_posix() for x in lib_dirs]))
         mlog.debug('  - potential include dirs: {}'.format([x.path.as_posix() for x in inc_dirs]))
 
+        must_have_library = ['boost_python']
+
         #   2. Find all boost libraries
         libs: T.List[BoostLibraryFile] = []
         for i in lib_dirs:
@@ -451,6 +454,10 @@ class BoostDependency(SystemDependency):
                 break
         libs = sorted(set(libs))
 
+        any_libs_found = len(libs) > 0
+        if not any_libs_found:
+            return False
+
         modules = ['boost_' + x for x in self.modules]
         for inc in inc_dirs:
             mlog.debug(f'  - found boost {inc.version} include dir: {inc.path}')
@@ -461,7 +468,7 @@ class BoostDependency(SystemDependency):
                 mlog.debug(f'    - {j}')
 
             #   3. Select the libraries matching the requested modules
-            not_found: T.List[str] = []
+            not_found_as_libs: T.List[str] = []
             selected_modules: T.List[BoostLibraryFile] = []
             for mod in modules:
                 found = False
@@ -471,7 +478,24 @@ class BoostDependency(SystemDependency):
                         found = True
                         break
                 if not found:
-                    not_found += [mod]
+                    not_found_as_libs += [mod]
+
+            # If a lib is not found, but an include directory exists,
+            # assume it is a header only module.
+            not_found: T.List[str] = []
+            for boost_modulename in not_found_as_libs:
+                assert boost_modulename.startswith('boost_')
+                if boost_modulename in must_have_library:
+                    not_found.append(boost_modulename)
+                    continue
+                include_subdir = boost_modulename.replace('boost_', 'boost/', 1)
+                headerdir_found = False
+                for inc_dir in inc_dirs:
+                    if (inc_dir.path / include_subdir).is_dir():
+                        headerdir_found = True
+                        break
+                if not headerdir_found:
+                    not_found.append(boost_modulename)
 
             # log the result
             mlog.debug('  - found:')
@@ -581,7 +605,9 @@ class BoostDependency(SystemDependency):
         vscrt = ''
         try:
             crt_val = self.env.coredata.optstore.get_value('b_vscrt')
+            assert isinstance(crt_val, str)
             buildtype = self.env.coredata.optstore.get_value('buildtype')
+            assert isinstance(buildtype, str)
             vscrt = self.clib_compiler.get_crt_compile_args(crt_val, buildtype)[0]
         except (KeyError, IndexError, AttributeError):
             pass

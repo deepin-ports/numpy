@@ -14,12 +14,13 @@ from ..build import CustomTarget, CustomTargetIndex
 from ..dependencies import Dependency, InternalDependency
 from ..interpreterbase import (
     InvalidArguments, noPosargs, noKwargs, typed_kwargs, FeatureDeprecated,
-    ContainerTypeInfo, KwargInfo, typed_pos_args
+    ContainerTypeInfo, KwargInfo, typed_pos_args, InterpreterObject
 )
 from ..interpreter.interpreterobjects import _CustomTargetHolder
 from ..interpreter.type_checking import NoneType
 from ..mesonlib import File, MesonException
 from ..programs import ExternalProgram
+from ..options import OptionKey
 
 if T.TYPE_CHECKING:
     from typing_extensions import TypedDict
@@ -330,7 +331,7 @@ class HotdocTargetBuilder:
         for path in self.include_paths:
             self.cmd.extend(['--include-path', path])
 
-        if self.state.environment.coredata.get_option(mesonlib.OptionKey('werror', subproject=self.state.subproject)):
+        if self.state.environment.coredata.optstore.get_value_for(OptionKey('werror', subproject=self.state.subproject)):
             self.cmd.append('--fatal-warnings')
         self.generate_hotdoc_config()
 
@@ -382,12 +383,9 @@ class HotdocTargetBuilder:
 
 
 class HotdocTargetHolder(_CustomTargetHolder['HotdocTarget']):
-    def __init__(self, target: HotdocTarget, interp: Interpreter):
-        super().__init__(target, interp)
-        self.methods.update({'config_path': self.config_path_method})
-
     @noPosargs
     @noKwargs
+    @InterpreterObject.method('config_path')
     def config_path_method(self, *args: T.Any, **kwargs: T.Any) -> str:
         conf = self.held_object.hotdoc_conf.absolute_path(self.interpreter.environment.source_dir,
                                                           self.interpreter.environment.build_dir)

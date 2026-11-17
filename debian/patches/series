@@ -4,6 +4,10 @@
 0004-Use-a-local-copy-of-object.inv-from-doc.python.org.patch
 0005-Adapt-SWIG-documentation-to-Debian.patch
 0006-Disable-unsupported-add-ons-in-documentation.patch
-0007-Disable-plots-to-avoid-circular-NumPy-dependency.patch
+0007-Disable-analytics-for-privacy.patch
 0008-Fix-numpy.get_include-for-cross-builds.patch
-0001-deepin-sw_64-support.diff
+0009-Fix-random-object-filenames-for-reproducibility.patch
+0010-Make-random-numbers-in-documentation-reproducible.patch
+0011-Do-not-run-timeit-during-documentation-build.patch
+0012-Fix-pytest-9.1-deprecation-warnings.patch
+0013-Make-x86-CPU-baseline-policy-compliant.patch

@@ -18,7 +18,8 @@ import re
 from . import build, environment
 from .backend.backends import InstallData
 from .mesonlib import (MesonException, Popen_safe, RealPathAction, is_windows,
-                       is_aix, setup_vsenv, pickle_load, is_osx, OptionKey)
+                       is_aix, setup_vsenv, pickle_load, is_osx)
+from .options import OptionKey
 from .scripts import depfixer, destdir_join
 from .scripts.meson_exe import run_exe
 try:
@@ -73,11 +74,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help='Do not rebuild before installing.')
     parser.add_argument('--only-changed', default=False, action='store_true',
                         help='Only overwrite files that are older than the copied file.')
-    parser.add_argument('--quiet', default=False, action='store_true',
+    parser.add_argument('-q', '--quiet', default=False, action='store_true',
                         help='Do not print every file that was installed.')
     parser.add_argument('--destdir', default=None,
                         help='Sets or overrides DESTDIR environment. (Since 0.57.0)')
-    parser.add_argument('--dry-run', '-n', action='store_true',
+    parser.add_argument('-n', '--dry-run', action='store_true',
                         help='Doesn\'t actually install, but print logs. (Since 0.57.0)')
     parser.add_argument('--skip-subprojects', nargs='?', const='*', default='',
                         help='Do not install files from given subprojects. (Since 0.58.0)')
@@ -138,7 +139,6 @@ def append_to_log(lf: T.TextIO, line: str) -> None:
         lf.write('\n')
     lf.flush()
 
-
 def set_chown(path: str, user: T.Union[str, int, None] = None,
               group: T.Union[str, int, None] = None,
               dir_fd: T.Optional[int] = None, follow_symlinks: bool = True) -> None:
@@ -149,10 +149,23 @@ def set_chown(path: str, user: T.Union[str, int, None] = None,
     # Not nice, but better than actually rewriting shutil.chown until
     # this python bug is fixed: https://bugs.python.org/issue18108
 
+    # This is running into a problem where this may not match any of signatures
+    # of `shtil.chown`, which (simplified) are:
+    #  chown(path: int | AnyPath, user: int | str, group: None = None)
+    #  chown(path: int | AnyPath, user: None, group: int | str)
+    # We cannot through easy coercion of the type system force it to say:
+    #  - user is non null and group is null
+    #  - user is null and group is non null
+    #  - user is non null and group is non null
+    #
+    # This is checked by the only (current) caller, but let's be sure that the
+    # call we're making to `shutil.chown` is actually valid.
+    assert user is not None or group is not None, 'ensure that calls to chown are valid'
+
     if sys.version_info >= (3, 13):
         # pylint: disable=unexpected-keyword-arg
-        # cannot handle sys.version_info, https://github.com/pylint-dev/pylint/issues/9138
-        shutil.chown(path, user, group, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+        # cannot handle sys.version_info, https://github.com/pylint-dev/pylint/issues/9622
+        shutil.chown(path, user, group, dir_fd=dir_fd, follow_symlinks=follow_symlinks)  # type: ignore[call-overload]
     else:
         real_os_chown = os.chown
 
@@ -428,15 +441,13 @@ class Installer:
         append_to_log(self.lf, to_file)
         return True
 
-    def do_symlink(self, target: str, link: str, destdir: str, full_dst_dir: str, allow_missing: bool) -> bool:
+    def do_symlink(self, target: str, link: str, destdir: str, full_dst_dir: str) -> bool:
         abs_target = target
         if not os.path.isabs(target):
             abs_target = os.path.join(full_dst_dir, target)
-        elif not os.path.exists(abs_target) and not allow_missing:
+        elif not os.path.exists(abs_target):
             abs_target = destdir_join(destdir, abs_target)
-        if not os.path.exists(abs_target) and not allow_missing:
-            raise MesonException(f'Tried to install symlink to missing file {abs_target}')
-        if os.path.exists(link):
+        if os.path.lexists(link):
             if not os.path.islink(link):
                 raise MesonException(f'Destination {link!r} already exists and is not a symlink')
             self.remove(link)
@@ -494,6 +505,9 @@ class Installer:
                 abs_src = os.path.join(root, d)
                 filepart = os.path.relpath(abs_src, start=src_dir)
                 abs_dst = os.path.join(dst_dir, filepart)
+                if os.path.islink(abs_src):
+                    files.append(d)
+                    continue
                 # Remove these so they aren't visited by os.walk at all.
                 if filepart in exclude_dirs:
                     dirs.remove(d)
@@ -563,7 +577,12 @@ class Installer:
             if is_windows() or destdir != '' or not os.isatty(sys.stdout.fileno()) or not os.isatty(sys.stderr.fileno()):
                 # can't elevate to root except in an interactive unix environment *and* when not doing a destdir install
                 raise
-            rootcmd = os.environ.get('MESON_ROOT_CMD') or shutil.which('sudo') or shutil.which('doas')
+            rootcmd = (
+                os.environ.get('MESON_ROOT_CMD')
+                or shutil.which('sudo')
+                or shutil.which('doas')
+                or shutil.which('run0')
+            )
             pkexec = shutil.which('pkexec')
             if rootcmd is None and pkexec is not None and 'PKEXEC_UID' not in os.environ:
                 rootcmd = pkexec
@@ -635,7 +654,7 @@ class Installer:
             full_dst_dir = get_destdir_path(destdir, fullprefix, s.install_path)
             full_link_name = get_destdir_path(destdir, fullprefix, s.name)
             dm.makedirs(full_dst_dir, exist_ok=True)
-            if self.do_symlink(s.target, full_link_name, destdir, full_dst_dir, s.allow_missing):
+            if self.do_symlink(s.target, full_link_name, destdir, full_dst_dir):
                 self.did_install_something = True
 
     def install_man(self, d: InstallData, dm: DirMaker, destdir: str, fullprefix: str) -> None:
@@ -851,9 +870,9 @@ def run(opts: 'ArgumentType') -> int:
         sys.exit('Install data not found. Run this command in build directory root.')
     if not opts.no_rebuild:
         b = build.load(opts.wd)
-        need_vsenv = T.cast('bool', b.environment.coredata.get_option(OptionKey('vsenv')))
+        need_vsenv = T.cast('bool', b.environment.coredata.optstore.get_value_for(OptionKey('vsenv')))
         setup_vsenv(need_vsenv)
-        backend = T.cast('str', b.environment.coredata.get_option(OptionKey('backend')))
+        backend = T.cast('str', b.environment.coredata.optstore.get_value_for(OptionKey('backend')))
         if not rebuild_all(opts.wd, backend):
             sys.exit(-1)
     os.chdir(opts.wd)

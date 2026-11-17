@@ -15,6 +15,7 @@
 
 #include "hwy/contrib/thread_pool/topology.h"
 
+#include <ctype.h>  // isspace
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -113,7 +114,9 @@ bool ForEachSLPI(LOGICAL_PROCESSOR_RELATIONSHIP rel, Func&& func) {
   }
   HWY_ASSERT(GetLastError() == ERROR_INSUFFICIENT_BUFFER);
   // Note: `buf_bytes` may be less than `sizeof(SLPI)`, which has padding.
-  uint8_t* buf = static_cast<uint8_t*>(malloc(buf_bytes));
+  // `calloc` zero-initializes the `Reserved` field, part of which has been
+  // repurposed into `GroupCount` in SDKs, 10.0.22000.0 or possibly earlier.
+  uint8_t* buf = static_cast<uint8_t*>(calloc(1, buf_bytes));
   HWY_ASSERT(buf);
 
   // Fill the buffer.
@@ -162,9 +165,8 @@ void ForeachBit(size_t num_groups, const GROUP_AFFINITY* affinity,
       size_t lp = Num0BitsBelowLS1Bit_Nonzero64(bits);
       bits &= bits - 1;  // clear LSB
       if (HWY_UNLIKELY(lp >= lps.size())) {
-        Warn(__FILE__, __LINE__,
-             "Clamping lp %zu to lps.size() %zu, groups %zu\n", lp, lps.size(),
-             num_groups);
+        Warn(__FILE__, line, "Clamping lp %zu to lps.size() %zu, groups %zu\n",
+             lp, lps.size(), num_groups);
         lp = lps.size() - 1;
       }
       func(lp, lps);
@@ -225,23 +227,19 @@ HWY_CONTRIB_DLLEXPORT size_t TotalLogicalProcessors() {
 #endif
 
   if (HWY_UNLIKELY(total_lps == 0)) {  // Failed to detect.
-    HWY_IF_CONSTEXPR(HWY_IS_DEBUG_BUILD) {
-      HWY_WARN(
-          "Unknown TotalLogicalProcessors, assuming 1. "
-          "HWY_OS_: WIN=%d LINUX=%d APPLE=%d;\n"
-          "HWY_ARCH_: WASM=%d X86=%d PPC=%d ARM=%d RISCV=%d S390X=%d\n",
-          HWY_OS_WIN, HWY_OS_LINUX, HWY_OS_APPLE, HWY_ARCH_WASM, HWY_ARCH_X86,
-          HWY_ARCH_PPC, HWY_ARCH_ARM, HWY_ARCH_RISCV, HWY_ARCH_S390X);
-    }
+    HWY_WARN(
+        "Unknown TotalLogicalProcessors, assuming 1. "
+        "HWY_OS_: WIN=%d LINUX=%d APPLE=%d;\n"
+        "HWY_ARCH_: WASM=%d X86=%d PPC=%d ARM=%d RISCV=%d S390X=%d\n",
+        HWY_OS_WIN, HWY_OS_LINUX, HWY_OS_APPLE, HWY_ARCH_WASM, HWY_ARCH_X86,
+        HWY_ARCH_PPC, HWY_ARCH_ARM, HWY_ARCH_RISCV, HWY_ARCH_S390X);
     return 1;
   }
 
   // Warn that we are clamping.
   if (HWY_UNLIKELY(total_lps > kMaxLogicalProcessors)) {
-    HWY_IF_CONSTEXPR(HWY_IS_DEBUG_BUILD) {
-      HWY_WARN("OS reports %zu processors but clamping to %zu\n", total_lps,
-               kMaxLogicalProcessors);
-    }
+    HWY_WARN("OS reports %zu processors but clamping to %zu\n", total_lps,
+             kMaxLogicalProcessors);
     total_lps = kMaxLogicalProcessors;
   }
 
@@ -251,6 +249,7 @@ HWY_CONTRIB_DLLEXPORT size_t TotalLogicalProcessors() {
 // ------------------------------ Affinity
 
 #if HWY_OS_LINUX || HWY_OS_FREEBSD
+namespace {
 
 #if HWY_OS_LINUX
 using CpuSet = cpu_set_t;
@@ -261,7 +260,7 @@ using CpuSet = cpuset_t;
 // Helper functions reduce the number of #if in GetThreadAffinity.
 int GetAffinity(CpuSet* set) {
   // To specify the current thread, pass 0 on Linux/Android and -1 on FreeBSD.
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && __ANDROID_API__ < 12
   return syscall(__NR_sched_getaffinity, 0, sizeof(CpuSet), set);
 #elif HWY_OS_FREEBSD
   return cpuset_getaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(CpuSet),
@@ -273,7 +272,7 @@ int GetAffinity(CpuSet* set) {
 
 int SetAffinity(CpuSet* set) {
   // To specify the current thread, pass 0 on Linux/Android and -1 on FreeBSD.
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && __ANDROID_API__ < 12
   return syscall(__NR_sched_setaffinity, 0, sizeof(CpuSet), set);
 #elif HWY_OS_FREEBSD
   return cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(CpuSet),
@@ -308,6 +307,7 @@ void Set(size_t lp, CpuSet* set) {
 #endif
 }
 
+}  // namespace
 #endif  // HWY_OS_LINUX || HWY_OS_FREEBSD
 
 HWY_CONTRIB_DLLEXPORT bool GetThreadAffinity(LogicalProcessorSet& lps) {
@@ -373,9 +373,7 @@ class File {
       if (fd_ > 0) return;           // success
       if (errno == EINTR) continue;  // signal: retry
       if (errno == ENOENT) return;   // not found, give up
-      if (HWY_IS_DEBUG_BUILD) {
-        HWY_WARN("Unexpected error opening %s: %d\n", path, errno);
-      }
+      HWY_WARN("Unexpected error opening %s: %d\n", path, errno);
       return;  // unknown error, give up
     }
   }
@@ -386,9 +384,7 @@ class File {
         const int ret = close(fd_);
         if (ret == 0) break;           // success
         if (errno == EINTR) continue;  // signal: retry
-        if (HWY_IS_DEBUG_BUILD) {
-          HWY_WARN("Unexpected error closing file: %d\n", errno);
-        }
+        HWY_WARN("Unexpected error closing file: %d\n", errno);
         return;  // unknown error, ignore
       }
     }
@@ -407,9 +403,7 @@ class File {
       }
       if (bytes_read == -1) {
         if (errno == EINTR) continue;  // signal: retry
-        if (HWY_IS_DEBUG_BUILD) {
-          HWY_WARN("Unexpected error reading file: %d\n", errno);
-        }
+        HWY_WARN("Unexpected error reading file: %d\n", errno);
         return 0;
       }
       pos += static_cast<size_t>(bytes_read);
@@ -569,6 +563,9 @@ std::vector<size_t> ExpandList(const char* list, size_t list_end,
   constexpr size_t kNotFound = ~size_t{0};
   size_t pos = 0;
 
+  // Gracefully handle empty lists, happens on GH200 systems (#2668).
+  if (isspace(list[0]) && list_end <= 2) return expanded;
+
   // Returns first `found_pos >= pos` where `list[found_pos] == c`, or
   // `kNotFound`.
   const auto find = [list, list_end, &pos](char c) -> size_t {
@@ -663,6 +660,27 @@ void SetClusterCacheSizes(std::vector<Topology::Package>& packages) {
 
 #elif HWY_OS_WIN
 
+// See #2734. GroupCount was added around Windows 10, but SDK docs do not
+// mention the actual version required. It is known to be absent in 8.1 and
+// MinGW 5.0.1, and present in the 10.0.22000.0 SDK. However, the OS must also
+// know about the field. Thus we zero-initialize the reserved field, assume it
+// remains zero, and return 1 if zero (old style single GroupMask), otherwise
+// the number of groups. There are two such structures, but note that
+// `PROCESSOR_RELATIONSHIP` already had this field.
+static size_t GroupCount(const CACHE_RELATIONSHIP& cr) {
+  // Added as the last u16 in the reserved area before GroupMask. We only read
+  // one byte because 256*64 processor bits are plenty.
+  const uint8_t* pcount =
+      reinterpret_cast<const uint8_t*>(&cr.GroupMask) - sizeof(uint16_t);
+  return HWY_MAX(pcount[HWY_IS_BIG_ENDIAN], 1);
+}
+
+static size_t GroupCount(const NUMA_NODE_RELATIONSHIP& nn) {
+  const uint8_t* pcount =
+      reinterpret_cast<const uint8_t*>(&nn.GroupMask) - sizeof(uint16_t);
+  return HWY_MAX(pcount[HWY_IS_BIG_ENDIAN], 1);
+}
+
 // Also sets LP.core and LP.smt.
 size_t MaxLpsPerCore(std::vector<Topology::LP>& lps) {
   size_t max_lps_per_core = 0;
@@ -676,8 +694,8 @@ size_t MaxLpsPerCore(std::vector<Topology::LP>& lps) {
     size_t smt = 0;
     ForeachBit(p.GroupCount, p.GroupMask, lps, __LINE__,
                [core_idx, &smt](size_t lp, std::vector<Topology::LP>& lps) {
-                 lps[lp].core = core_idx;
-                 lps[lp].smt = smt++;
+                 lps[lp].core = static_cast<uint16_t>(core_idx);
+                 lps[lp].smt = static_cast<uint8_t>(smt++);
                });
     ++core_idx;
   });
@@ -685,7 +703,7 @@ size_t MaxLpsPerCore(std::vector<Topology::LP>& lps) {
   return max_lps_per_core;
 }
 
-// Interprets cluster (tyically a shared L3 cache) as a "processor die". Also
+// Interprets cluster (typically a shared L3 cache) as a "processor die". Also
 // sets LP.cluster.
 size_t MaxCoresPerCluster(const size_t max_lps_per_core,
                           std::vector<Topology::LP>& lps) {
@@ -702,7 +720,7 @@ size_t MaxCoresPerCluster(const size_t max_lps_per_core,
 
     ForeachBit(num_groups, groups, lps, __LINE__,
                [cluster_idx](size_t lp, std::vector<Topology::LP>& lps) {
-                 lps[lp].cluster = cluster_idx;
+                 lps[lp].cluster = static_cast<uint16_t>(cluster_idx);
                });
     ++cluster_idx;
   };
@@ -716,7 +734,7 @@ size_t MaxCoresPerCluster(const size_t max_lps_per_core,
     const CACHE_RELATIONSHIP& cr = info.Cache;
     if (cr.Type != CacheUnified && cr.Type != CacheData) return;
     if (cr.Level != 3) return;
-    foreach_cluster(cr.GroupCount, cr.GroupMasks);
+    foreach_cluster(GroupCount(cr), cr.GroupMasks);
   };
 
   if (!ForEachSLPI(RelationProcessorDie, foreach_die)) {
@@ -750,7 +768,7 @@ std::vector<PackageSizes> DetectPackages(std::vector<Topology::LP>& lps) {
 
     ForeachBit(p.GroupCount, p.GroupMask, lps, __LINE__,
                [package_idx](size_t lp, std::vector<Topology::LP>& lps) {
-                 lps[lp].package = package_idx;
+                 lps[lp].package = static_cast<uint8_t>(package_idx);
                });
     ++package_idx;
   });
@@ -773,7 +791,7 @@ void SetNodes(std::vector<Topology::LP>& lps) {
     if (info.Relationship != RelationNumaNode) return;
     const NUMA_NODE_RELATIONSHIP& nn = info.NumaNode;
     // This field was previously reserved/zero. There is at least one group.
-    const size_t num_groups = HWY_MAX(1, nn.GroupCount);
+    const size_t num_groups = HWY_MAX(1, GroupCount(nn));
     const uint8_t node = static_cast<uint8_t>(nn.NodeNumber);
     ForeachBit(num_groups, nn.GroupMasks, lps, __LINE__,
                [node](size_t lp, std::vector<Topology::LP>& lps) {
@@ -816,7 +834,7 @@ std::vector<PackageSizes> DetectPackages(std::vector<Topology::LP>& lps) {
     lps[lp].package = 0;  // single package
     lps[lp].core = static_cast<uint16_t>(lp / lp_per_core);
     lps[lp].smt = static_cast<uint8_t>(lp % lp_per_core);
-    lps[lp].cluster = static_cast<uint16_t>(lp / cores_per_cluster);
+    lps[lp].cluster = static_cast<uint16_t>(lps[lp].core / cores_per_cluster);
   }
 
   PackageSizes ps;
@@ -993,8 +1011,16 @@ bool InitCachesSysfs(Caches& caches) {
 
   // Require L1 and L2 cache.
   if (HWY_UNLIKELY(caches[1].size_kib == 0 || caches[2].size_kib == 0)) {
-    HWY_WARN("sysfs detected L1=%u L2=%u, err %x\n", caches[1].size_kib,
+// Don't complain on Android because this is known to happen there. We are
+// unaware of good alternatives: `getauxval(AT_L1D_CACHEGEOMETRY)` and
+// `sysconf(_SC_LEVEL1_DCACHE_SIZE)` are unreliable, detecting via timing seems
+// difficult to do reliably, and we do not want to maintain lists of known CPUs
+// and their properties. It's OK to return false; callers are responsible for
+// assuming reasonable defaults.
+#ifndef __ANDROID__
+    HWY_WARN("sysfs detected L1=%u L2=%u, err %d\n", caches[1].size_kib,
              caches[2].size_kib, errno);
+#endif
     return false;
   }
 
@@ -1024,7 +1050,7 @@ bool InitCachesWin(Caches& caches) {
                             : cr.Associativity;
 
       // How many cores share this cache?
-      size_t shared_with = NumBits(cr.GroupCount, cr.GroupMasks);
+      size_t shared_with = NumBits(GroupCount(cr), cr.GroupMasks);
       // Divide out hyperthreads. This core may have fewer than
       // `max_lps_per_core`, hence round up.
       shared_with = DivCeil(shared_with, max_lps_per_core);
@@ -1180,7 +1206,8 @@ HWY_MAYBE_UNUSED void ComputeSets(Cache& c) {
   if (c.sets == 0) {
     c.sets = static_cast<uint32_t>(sets);
   } else {
-    if (c.sets != sets) {
+    const size_t diff = c.sets - sets;
+    if (diff > 1) {
       HWY_ABORT("Inconsistent cache sets %u != %zu\n", c.sets, sets);
     }
   }

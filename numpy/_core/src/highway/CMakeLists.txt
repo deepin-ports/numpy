@@ -36,7 +36,7 @@ if(POLICY CMP0128)
   cmake_policy(SET CMP0128 NEW)
 endif()
 
-project(hwy VERSION 1.2.0)  # Keep in sync with base.h version
+project(hwy VERSION 1.3.0)  # Keep in sync with base.h version
 # `hwy` is lowercase to handle find_package() in Config mode:
 set(namespace "${PROJECT_NAME}::")
 
@@ -97,21 +97,15 @@ if (NOT DEFINED CMAKE_CXX_STANDARD)
   if ("cxx_std_17" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
     set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_17)
   else()
-    if ("cxx_std_14" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
-      set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_14)
-    else()
-      set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_11)
-    endif()
+    message(WARNING "cxx_std_17 not found in CMAKE_CXX_COMPILE_FEATURES but vqsort requires C++17")
+    set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_14)
   endif()
 else()
-  if (CMAKE_CXX_STANDARD GREATER_EQUAL 14 AND CMAKE_CXX_STANDARD LESS 98)
-    if (CMAKE_CXX_STANDARD GREATER_EQUAL 17)
-      set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_17)
-    else()
-      set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_14)
-    endif()
+  if (CMAKE_CXX_STANDARD GREATER_EQUAL 17 AND CMAKE_CXX_STANDARD LESS 98)
+    set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_17)
   else()
-    set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_11)
+    message(WARNING "CMAKE_CXX_STANDARD < 17 but vqsort requires C++17")
+    set(HWY_CXX_STD_TGT_COMPILE_FEATURE cxx_std_14)
   endif()
 endif()
 
@@ -135,6 +129,61 @@ check_cxx_source_compiles(
     }"
   HWY_RISCV
 )
+
+if (WIN32)
+  set (ORIG_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
+  set (CMAKE_REQUIRED_LIBRARIES synchronization)
+  check_cxx_source_compiles(
+    "#ifndef NOMINMAX
+     #define NOMINMAX
+     #endif
+
+     #include <windows.h>
+
+     int main() {
+       unsigned val1 = 0u;
+       unsigned val2 = 1u;
+       WaitOnAddress(&val1, &val2, sizeof(unsigned), 1);
+       WakeByAddressAll(&val1);
+       WakeByAddressSingle(&val1);
+       return 0;
+     }"
+  HWY_HAVE_WIN32_SYNCHRONIZATION_LIB)
+  set (CMAKE_REQUIRED_LIBRARIES ${ORIG_CMAKE_REQUIRED_LIBRARIES})
+else()
+  set (HWY_HAVE_WIN32_SYNCHRONIZATION_LIB OFF)
+endif ()
+
+if (HWY_HAVE_WIN32_SYNCHRONIZATION_LIB OR NOT WIN32)
+  set (HWY_DISABLE_FUTEX OFF CACHE BOOL "Disable futex for thread_pool")
+else()
+  # Force HWY_DISABLE_FUTEX to ON if compiling for Win32 and
+  # libsynchronization.a or synchronization.lib is not available
+  set (HWY_DISABLE_FUTEX ON CACHE BOOL "Disable futex for thread_pool" FORCE)
+endif()
+
+find_package(Threads)
+
+if (NOT Threads_FOUND AND HWY_ENABLE_CONTRIB)
+  message(FATAL_ERROR "Threads must be available if HWY_ENABLE_CONTRIB is ON")
+endif()
+
+if(Threads_FOUND)
+  if(THREADS_HAVE_PTHREAD_ARG)
+    set(HWY_THREAD_FLAGS "-pthread")
+  else()
+    set(HWY_THREAD_FLAGS "")
+  endif()
+
+  if(CMAKE_THREAD_LIBS_INIT)
+    set(HWY_THREAD_LIBS ${CMAKE_THREAD_LIBS_INIT})
+  else()
+    set(HWY_THREAD_LIBS "")
+  endif()
+else()
+  set(HWY_THREAD_FLAGS "")
+  set(HWY_THREAD_LIBS "")
+endif()
 
 if (HWY_RISCV OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "RISCV32|RISCV64|RISCV128" OR CMAKE_SYSTEM_PROCESSOR MATCHES "riscv32|riscv64|riscv128")
   include(CheckCSourceCompiles)
@@ -184,6 +233,8 @@ list(APPEND HWY_CONTRIB_SOURCES
     hwy/contrib/sort/vqsort.cc
     hwy/contrib/sort/vqsort.h
     hwy/contrib/thread_pool/futex.h
+    hwy/contrib/thread_pool/spin.h
+    hwy/contrib/thread_pool/thread_pool.cc
     hwy/contrib/thread_pool/thread_pool.h
     hwy/contrib/thread_pool/topology.cc
     hwy/contrib/thread_pool/topology.h
@@ -197,6 +248,7 @@ endif()  # HWY_ENABLE_CONTRIB
 set(HWY_SOURCES
     hwy/abort.h
     hwy/aligned_allocator.h
+    hwy/auto_tune.h
     hwy/base.h
     hwy/cache_control.h
     hwy/detect_compiler_arch.h  # private
@@ -210,6 +262,8 @@ set(HWY_SOURCES
     hwy/ops/emu128-inl.h
     hwy/ops/generic_ops-inl.h
     hwy/ops/inside-inl.h
+    hwy/ops/loongarch_lsx-inl.h
+    hwy/ops/loongarch_lasx-inl.h
     hwy/ops/ppc_vsx-inl.h
     hwy/ops/rvv-inl.h
     hwy/ops/scalar-inl.h
@@ -228,6 +282,7 @@ set(HWY_SOURCES
     hwy/targets.h
     hwy/timer-inl.h
     hwy/timer.h
+    hwy/x86_cpuid.h
 )
 
 if (NOT HWY_CMAKE_HEADER_ONLY)
@@ -238,6 +293,7 @@ if (NOT HWY_CMAKE_HEADER_ONLY)
     hwy/per_target.cc
     hwy/perf_counters.cc
     hwy/print.cc
+    hwy/profiler.cc
     hwy/targets.cc
     hwy/timer.cc
   )
@@ -383,7 +439,7 @@ else()
   endif()
 
   # Suppress STL iterator warnings. Supported by GCC 4.4.7 and newer, which
-  # predates the C++11 we require.
+  # predates the C++14 (and C++17 for VQSort) we require.
   if (${CMAKE_CXX_COMPILER_ID} MATCHES "GNU")
     list(APPEND HWY_FLAGS -Wno-psabi)
   endif()
@@ -399,6 +455,8 @@ else()
       -march=armv7-a
       -mfpu=neon-vfpv4
       -mfloat-abi=hard  # must match the toolchain specified as CXX=
+      -DHWY_HAVE_SCALAR_F16_TYPE=0  # See #2625
+      -DHWY_NEON_HAVE_F16C=0
     )
     if(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU")
       # using GCC
@@ -437,6 +495,10 @@ else()
   endif()
 
 endif()  # !MSVC
+
+if (HWY_DISABLE_FUTEX)
+  list(APPEND HWY_FLAGS -DHWY_DISABLE_FUTEX)
+endif()
 
 if (HWY_CMAKE_HEADER_ONLY)
   list(APPEND HWY_FLAGS -DHWY_HEADER_ONLY)
@@ -500,7 +562,7 @@ endif()
 if (HWY_ENABLE_CONTRIB)
 add_library(hwy_contrib ${HWY_LIBRARY_TYPE} ${HWY_CONTRIB_SOURCES})
 target_link_libraries(hwy_contrib PUBLIC hwy)
-target_compile_options(hwy_contrib PRIVATE ${HWY_FLAGS})
+target_compile_options(hwy_contrib PRIVATE ${HWY_FLAGS} ${HWY_THREAD_FLAGS})
 set_property(TARGET hwy_contrib PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(hwy_contrib PROPERTIES VERSION ${LIBRARY_VERSION} SOVERSION ${LIBRARY_SOVERSION})
 target_include_directories(hwy_contrib PUBLIC
@@ -514,6 +576,14 @@ set_target_properties(hwy_contrib PROPERTIES
   LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hwy/hwy.version)
 # For GCC __atomic_store_8, see #887
 target_link_libraries(hwy_contrib PRIVATE ${ATOMICS_LIBRARIES})
+
+# Avoid linker errors if libpthread needs to be linked
+target_link_libraries(hwy_contrib PRIVATE ${HWY_THREAD_LIBS})
+
+if (WIN32 AND NOT MSVC AND NOT HWY_DISABLE_FUTEX)
+target_link_libraries(hwy_contrib PUBLIC synchronization)
+endif()
+
 # not supported by MSVC/Clang, safe to skip (we use DLLEXPORT annotations)
 if(UNIX AND NOT APPLE)
   set_property(TARGET hwy_contrib APPEND_STRING PROPERTY
@@ -615,6 +685,19 @@ endif()  # HWY_ENABLE_TESTS
 # Add a pkg-config file for libhwy and the contrib/test libraries.
 set(HWY_LIBRARY_VERSION "${CMAKE_PROJECT_VERSION}")
 set(HWY_PC_FILES libhwy.pc)
+
+if (HWY_DISABLE_FUTEX)
+  set(HWY_PC_DISABLE_FUTEX_CFLAGS "-DHWY_DISABLE_FUTEX")
+else()
+  set(HWY_PC_DISABLE_FUTEX_CFLAGS "")
+endif()
+
+if (WIN32 AND NOT MSVC AND NOT HWY_DISABLE_FUTEX)
+  set(HWY_PC_WIN32_SYNCHRONIZATION_LIBS "-lsynchronization")
+else()
+  set(HWY_PC_WIN32_SYNCHRONIZATION_LIBS "")
+endif()
+
 if (HWY_ENABLE_CONTRIB)
 list(APPEND HWY_PC_FILES libhwy-contrib.pc)
 endif()  # HWY_ENABLE_CONTRIB
@@ -657,15 +740,18 @@ set_target_properties(hwy_benchmark
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "examples/")
 
 # Profiler demo
+if (HWY_ENABLE_CONTRIB)
 add_executable(hwy_profiler_example hwy/examples/profiler_example.cc)
 target_sources(hwy_profiler_example PRIVATE
     hwy/profiler.h)
-target_compile_options(hwy_profiler_example PRIVATE ${HWY_FLAGS})
+target_compile_options(hwy_profiler_example PRIVATE ${HWY_FLAGS} ${HWY_THREAD_FLAGS})
 target_compile_features(hwy_profiler_example PRIVATE ${HWY_CXX_STD_TGT_COMPILE_FEATURE})
-target_link_libraries(hwy_profiler_example PRIVATE hwy)
+target_link_libraries(hwy_profiler_example PRIVATE hwy hwy_contrib)
 target_link_libraries(hwy_profiler_example PRIVATE ${ATOMICS_LIBRARIES})
+target_link_libraries(hwy_profiler_example PRIVATE ${HWY_THREAD_LIBS})
 set_target_properties(hwy_profiler_example
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "examples/")
+endif()  # HWY_ENABLE_CONTRIB
 
 endif()  # HWY_ENABLE_EXAMPLES
 # -------------------------------------------------------- Tests
@@ -710,9 +796,6 @@ endif()  # HWY_SYSTEM_GTEST
 endif()  # HWY_TEST_STANDALONE
 
 set(HWY_TEST_FILES
-  hwy/contrib/algo/copy_test.cc
-  hwy/contrib/algo/find_test.cc
-  hwy/contrib/algo/transform_test.cc
   hwy/abort_test.cc
   hwy/aligned_allocator_test.cc
   hwy/base_test.cc
@@ -730,6 +813,7 @@ set(HWY_TEST_FILES
   hwy/tests/cast_test.cc
   hwy/tests/combine_test.cc
   hwy/tests/compare_test.cc
+  hwy/tests/complex_arithmetic_test.cc
   hwy/tests/compress_test.cc
   hwy/tests/concat_test.cc
   hwy/tests/convert_test.cc
@@ -755,7 +839,10 @@ set(HWY_TEST_FILES
   hwy/tests/masked_arithmetic_test.cc
   hwy/tests/masked_minmax_test.cc
   hwy/tests/memory_test.cc
+  hwy/tests/minmax_magnitude_test.cc
+  hwy/tests/minmax_number_test.cc
   hwy/tests/minmax_test.cc
+  hwy/tests/minmax128_test.cc
   hwy/tests/mul_by_pow2_test.cc
   hwy/tests/mul_pairwise_test.cc
   hwy/tests/mul_test.cc
@@ -784,6 +871,10 @@ if (HWY_ENABLE_CONTRIB)
 list(APPEND HWY_TEST_LIBS hwy_contrib)
 
 list(APPEND HWY_TEST_FILES
+  hwy/auto_tune_test.cc
+  hwy/contrib/algo/copy_test.cc
+  hwy/contrib/algo/find_test.cc
+  hwy/contrib/algo/transform_test.cc
   hwy/contrib/bit_pack/bit_pack_test.cc
   hwy/contrib/dot/dot_test.cc
   hwy/contrib/matvec/matvec_test.cc
@@ -791,10 +882,14 @@ list(APPEND HWY_TEST_FILES
   # Disabled due to SIGILL in clang7 debug build during gtest discovery phase,
   # not reproducible locally. Still tested via bazel build.
   hwy/contrib/math/math_test.cc
+  hwy/contrib/math/math_hyper_test.cc
+  hwy/contrib/math/math_tan_test.cc
+  hwy/contrib/math/math_trig_test.cc
   hwy/contrib/random/random_test.cc
   hwy/contrib/sort/bench_sort.cc
   hwy/contrib/sort/sort_test.cc
   hwy/contrib/sort/sort_unit_test.cc
+  hwy/contrib/thread_pool/spin_test.cc
   hwy/contrib/thread_pool/thread_pool_test.cc
   hwy/contrib/thread_pool/topology_test.cc
   hwy/contrib/unroller/unroller_test.cc
@@ -820,7 +915,7 @@ foreach (TESTFILE IN LISTS HWY_TEST_FILES)
   # The TESTNAME is the name without the extension or directory.
   get_filename_component(TESTNAME ${TESTFILE} NAME_WE)
   add_executable(${TESTNAME} ${TESTFILE})
-  target_compile_options(${TESTNAME} PRIVATE ${HWY_FLAGS})
+  target_compile_options(${TESTNAME} PRIVATE ${HWY_FLAGS} ${HWY_THREAD_FLAGS})
   # Test all targets, not just the best/baseline. This changes the default
   # policy to all-attainable; note that setting -DHWY_COMPILE_* directly can
   # cause compile errors because only one may be set, and other CMakeLists.txt
@@ -834,6 +929,10 @@ foreach (TESTFILE IN LISTS HWY_TEST_FILES)
   target_link_libraries(${TESTNAME} PRIVATE ${HWY_TEST_LIBS} ${HWY_GTEST_LIBS})
   # For GCC __atomic_store_8, see #887
   target_link_libraries(${TESTNAME} PRIVATE ${ATOMICS_LIBRARIES})
+
+  # Avoid linker errors if libpthread needs to be linked
+  target_link_libraries(${TESTNAME} PRIVATE ${HWY_THREAD_LIBS})
+
   # Output test targets in the test directory.
   set_target_properties(${TESTNAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "tests")
 

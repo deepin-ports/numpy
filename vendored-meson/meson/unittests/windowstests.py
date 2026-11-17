@@ -17,8 +17,9 @@ import mesonbuild.coredata
 import mesonbuild.modules.gnome
 from mesonbuild.mesonlib import (
     MachineChoice, is_windows, is_cygwin, python_command, version_compare,
-    EnvironmentException, OptionKey
+    EnvironmentException
 )
+from mesonbuild.options import OptionKey
 from mesonbuild.compilers import (
     detect_c_compiler, detect_d_compiler, compiler_from_language,
 )
@@ -250,9 +251,15 @@ class WindowsTests(BasePlatformTests):
                 env=current_env)
 
             # Check this has actually built the appropriate exes
-            output_debug = subprocess.check_output(str(os.path.join(self.builddir+'_debug', 'genvslite.exe')))
-            self.assertEqual( output_debug, b'Debug\r\n' )
-            output_release = subprocess.check_output(str(os.path.join(self.builddir+'_release', 'genvslite.exe')))
+            exe_path = str(os.path.join(self.builddir+'_debug', 'genvslite.exe'))
+            self.assertTrue(os.path.exists(exe_path))
+            rc = subprocess.run([exe_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(rc.returncode, 0, rc.stdout + rc.stderr)
+            output_debug = rc.stdout
+            self.assertEqual(output_debug, b'Debug\r\n' )
+            exe_path = str(os.path.join(self.builddir+'_release', 'genvslite.exe'))
+            self.assertTrue(os.path.exists(exe_path))
+            output_release = subprocess.check_output([exe_path])
             self.assertEqual( output_release, b'Non-debug\r\n' )
 
         finally:
@@ -462,6 +469,12 @@ class WindowsTests(BasePlatformTests):
         # Studio is picked, as a regression test for
         # https://github.com/mesonbuild/meson/issues/9774
         env['PATH'] = get_path_without_cmd('ninja', env['PATH'])
+        # Add a multiline variable to test that it is handled correctly
+        # with a line that contains only '=' and a line that would result
+        # in an invalid variable name.
+        # see: https://github.com/mesonbuild/meson/pull/13682
+        env['MULTILINE_VAR_WITH_EQUALS'] = 'Foo\r\n=====\r\n'
+        env['MULTILINE_VAR_WITH_INVALID_NAME'] = 'Foo\n%=Bar\n'
         testdir = os.path.join(self.common_test_dir, '1 trivial')
         out = self.init(testdir, extra_args=['--vsenv'], override_envvars=env)
         self.assertIn('Activating VS', out)

@@ -35,7 +35,8 @@ from mesonbuild import mlog
 from mesonbuild.environment import Environment, detect_ninja, detect_machine_info
 from mesonbuild.coredata import version as meson_version
 from mesonbuild.options import backendlist
-from mesonbuild.mesonlib import OptionKey, setup_vsenv
+from mesonbuild.mesonlib import setup_vsenv
+from mesonbuild.options import OptionKey
 
 if T.TYPE_CHECKING:
     from mesonbuild.coredata import SharedCMDOptions
@@ -134,10 +135,6 @@ class FakeBuild:
     def __init__(self, env):
         self.environment = env
 
-class FakeCompilerOptions:
-    def __init__(self):
-        self.value = []
-
 def get_fake_options(prefix: str = '') -> SharedCMDOptions:
     opts = T.cast('SharedCMDOptions', argparse.Namespace())
     opts.native_file = []
@@ -147,11 +144,11 @@ def get_fake_options(prefix: str = '') -> SharedCMDOptions:
     opts.cmd_line_options = {}
     return opts
 
-def get_fake_env(sdir='', bdir=None, prefix='', opts=None):
+def get_fake_env(sdir: str = '', bdir: T.Optional[str] = None, prefix: str = '',
+                 opts: T.Optional[SharedCMDOptions] = None) -> Environment:
     if opts is None:
         opts = get_fake_options(prefix)
     env = Environment(sdir, bdir, opts)
-    env.coredata.optstore.set_value_object(OptionKey('args', lang='c'),  FakeCompilerOptions())
     env.machines.host.cpu_family = 'x86_64' # Used on macOS inside find_library
     # Invalidate cache when using a different Environment object.
     clear_meson_configure_class_caches()
@@ -283,7 +280,7 @@ def get_backend_commands(backend: Backend, debug: bool = False) -> \
         raise AssertionError(f'Unknown backend: {backend!r}')
     return cmd, clean_cmd, test_cmd, install_cmd, uninstall_cmd
 
-def run_mtest_inprocess(commandlist: T.List[str]) -> T.Tuple[int, str, str]:
+def run_mtest_inprocess(commandlist: T.List[str]) -> T.Tuple[int, str]:
     out = StringIO()
     with mock.patch.object(sys, 'stdout', out), mock.patch.object(sys, 'stderr', out):
         returncode = mtest.run_with_args(commandlist)

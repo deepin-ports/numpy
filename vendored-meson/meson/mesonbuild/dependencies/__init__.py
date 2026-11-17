@@ -7,7 +7,6 @@ from .base import (
         ExternalLibrary, DependencyException, DependencyMethods,
         BuiltinDependency, SystemDependency, get_leaf_external_dependencies)
 from .detect import find_external_dependency, get_dep_identifier, packages, _packages_accept_language
-from .blas_lapack import openblas_factory
 
 
 __all__ = [
@@ -197,6 +196,7 @@ packages.defaults.update({
     'zlib': 'dev',
     'jni': 'dev',
     'jdk': 'dev',
+    'diasdk': 'dev',
 
     'boost': 'boost',
     'cuda': 'cuda',
@@ -221,6 +221,7 @@ packages.defaults.update({
     'shaderc': 'misc',
     'iconv': 'misc',
     'intl': 'misc',
+    'atomic': 'misc',
     'dl': 'misc',
     'openssl': 'misc',
     'libcrypto': 'misc',

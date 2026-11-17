@@ -249,7 +249,7 @@ PyArray_CopyObject(PyArrayObject *dest, PyObject *src_object)
      */
     ndim = PyArray_DiscoverDTypeAndShape(src_object,
             PyArray_NDIM(dest), dims, &cache,
-            NPY_DTYPE(PyArray_DESCR(dest)), PyArray_DESCR(dest), &dtype, 1, NULL);
+            NPY_DTYPE(PyArray_DESCR(dest)), PyArray_DESCR(dest), &dtype, -1, NULL);
     if (ndim < 0) {
         return -1;
     }
@@ -442,9 +442,9 @@ array_dealloc(PyArrayObject *self)
                 nbytes = 1;
             }
             PyDataMem_UserFREE(fa->data, nbytes, fa->mem_handler);
-            Py_DECREF(fa->mem_handler);
         }
     }
+    Py_CLEAR(fa->mem_handler);
 
     /* must match allocation in PyArray_NewFromDescr */
     npy_free_cache_dim(fa->dimensions, 2 * fa->nd);
@@ -930,6 +930,9 @@ array_richcompare(PyArrayObject *self, PyObject *other, int cmp_op)
         PyErr_Clear();
 
         PyArrayObject *array_other = (PyArrayObject *)PyArray_FROM_O(other);
+        if (array_other == NULL) {
+            return NULL;
+        }
         if (PyArray_TYPE(array_other) == NPY_VOID) {
             /*
             * Void arrays are currently not handled by ufuncs, so if the other
@@ -940,13 +943,17 @@ array_richcompare(PyArrayObject *self, PyObject *other, int cmp_op)
         }
 
         if (PyArray_NDIM(self) == 0 && PyArray_NDIM(array_other) == 0) {
-            /*
-             * (seberg) not sure that this is best, but we preserve Python
-             * bool result for "scalar" inputs for now by returning
-             * `NotImplemented`.
-             */
+            // we have scalar arrays with different types
+            // we return a numpy bool directly instead of NotImplemented,
+            // which would mean a fallback to the python default __eq__/__neq__
+            // see gh-27271
             Py_DECREF(array_other);
-            Py_RETURN_NOTIMPLEMENTED;
+            if (cmp_op == Py_EQ) {
+                return Py_NewRef(PyArrayScalar_False);
+            }
+            else {
+                return Py_NewRef(PyArrayScalar_True);
+            }
         }
 
         /* Hack warning: using NpyIter to allocate broadcasted result. */

@@ -16,9 +16,11 @@
 // Target-specific helper functions for use by *_test.cc.
 
 #include <stdio.h>
-#include <string.h>  // memset
 
 // IWYU pragma: begin_exports
+#include <stddef.h>
+#include <stdint.h>
+
 #include "hwy/aligned_allocator.h"
 #include "hwy/base.h"
 #include "hwy/detect_targets.h"
@@ -45,14 +47,17 @@ HWY_BEFORE_NAMESPACE();
 namespace hwy {
 namespace HWY_NAMESPACE {
 
+// TODO(janwas): remove when users are migrated.
+using ::hwy::AdjustedReps;
+
 // Like Iota, but avoids wrapping around to negative integers.
-template <class D, HWY_IF_FLOAT_D(D)>
-HWY_INLINE Vec<D> PositiveIota(D d) {
-  return Iota(d, 1);
+template <class D, typename T2, HWY_IF_FLOAT_D(D)>
+HWY_INLINE Vec<D> PositiveIota(D d, T2 first) {
+  return Iota(d, first);
 }
-template <class D, HWY_IF_NOT_FLOAT_NOR_SPECIAL_D(D)>
-HWY_INLINE Vec<D> PositiveIota(D d) {
-  const auto vi = Iota(d, 1);
+template <class D, typename T2, HWY_IF_NOT_FLOAT_NOR_SPECIAL_D(D)>
+HWY_INLINE Vec<D> PositiveIota(D d, T2 first) {
+  const auto vi = Iota(d, first);
   return Max(And(vi, Set(d, LimitsMax<TFromD<D>>())),
              Set(d, static_cast<TFromD<D>>(1)));
 }
@@ -172,8 +177,8 @@ HWY_NOINLINE void AssertMaskEqual(D d, VecArg<Mask<D>> a, VecArg<Mask<D>> b,
   auto bits_a = AllocateAligned<uint8_t>(HWY_MAX(size_t{8}, N8));
   auto bits_b = AllocateAligned<uint8_t>(size_t{HWY_MAX(8, N8)});
   HWY_ASSERT(bits_a && bits_b);
-  memset(bits_a.get(), 0, N8);
-  memset(bits_b.get(), 0, N8);
+  ZeroBytes(bits_a.get(), N8);
+  ZeroBytes(bits_b.get(), N8);
   const size_t num_bytes_a = StoreMaskBits(d, a, bits_a.get());
   const size_t num_bytes_b = StoreMaskBits(d, b, bits_b.get());
   AssertEqual(num_bytes_a, num_bytes_b, target_name, filename, line);
@@ -862,36 +867,6 @@ template <class Func>
 void ForUIF163264(const Func& func) {
   ForUIF16(func);
   ForUIF3264(func);
-}
-
-// For tests that involve loops, adjust the trip count so that emulated tests
-// finish quickly (but always at least 2 iterations to ensure some diversity).
-constexpr size_t AdjustedReps(size_t max_reps) {
-#if HWY_ARCH_RISCV
-  return HWY_MAX(max_reps / 32, 2);
-#elif HWY_IS_DEBUG_BUILD
-  return HWY_MAX(max_reps / 8, 2);
-#elif HWY_ARCH_ARM
-  return HWY_MAX(max_reps / 4, 2);
-#elif HWY_COMPILER_MSVC
-  return HWY_MAX(max_reps / 2, 2);
-#else
-  return HWY_MAX(max_reps, 2);
-#endif
-}
-
-// Same as above, but the loop trip count will be 1 << max_pow2.
-constexpr size_t AdjustedLog2Reps(size_t max_pow2) {
-  // If "negative" (unsigned wraparound), use original.
-#if HWY_ARCH_RISCV
-  return HWY_MIN(max_pow2 - 4, max_pow2);
-#elif HWY_IS_DEBUG_BUILD
-  return HWY_MIN(max_pow2 - 1, max_pow2);
-#elif HWY_ARCH_ARM
-  return HWY_MIN(max_pow2 - 1, max_pow2);
-#else
-  return max_pow2;
-#endif
 }
 
 // NOLINTNEXTLINE(google-readability-namespace-comments)

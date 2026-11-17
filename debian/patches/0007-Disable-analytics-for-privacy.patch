@@ -1,0 +1,23 @@
+From: =?utf-8?q?Timo_R=C3=B6hling?= <roehling@debian.org>
+Date: Thu, 29 Jan 2026 22:18:35 +0100
+Subject: Disable analytics for privacy
+
+---
+ doc/source/conf.py | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/doc/source/conf.py b/doc/source/conf.py
+index 9900e17..1e0a2cb 100644
+--- a/doc/source/conf.py
++++ b/doc/source/conf.py
+@@ -299,10 +299,6 @@ html_theme_options = {
+         "json_url": "https://numpy.org/doc/_static/versions.json",
+     },
+     "show_version_warning_banner": False,
+-    "analytics": {
+-        "plausible_analytics_domain": "numpy.org/doc/stable/",
+-        "plausible_analytics_url": ("https://views.scientific-python.org/js/script.js"),
+-    },
+ }
+ 
+ html_title = f"{project} v{version} Manual"

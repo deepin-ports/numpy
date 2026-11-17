@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright © 2024 Intel Corporation
+# Copyright © 2024-2025 Intel Corporation
 
 """Provides mixins for Apple compilers."""
 
@@ -55,3 +55,26 @@ class AppleCompilerMixin(Compiler):
         if not link:
             raise MesonException("Couldn't find libomp")
         return self.__BASE_OMP_FLAGS + link
+
+    def get_prelink_args(self, prelink_name: str, obj_list: T.List[str]) -> T.Tuple[T.List[str], T.List[str]]:
+        # The objects are prelinked through the compiler, which injects -lSystem
+        return [prelink_name], ['-nostdlib', '-r', '-o', prelink_name] + obj_list
+
+
+class AppleCStdsMixin(Compiler):
+
+    """Provide version overrides for the Apple Compilers."""
+
+    _C17_VERSION = '>=10.0.0'
+    _C18_VERSION = '>=11.0.0'
+    _C2X_VERSION = '>=11.0.3'
+    _C23_VERSION = '>=17.0.0'
+    _C2Y_VERSION = '>=17.0.0'
+
+
+class AppleCPPStdsMixin(Compiler):
+
+    """Provide version overrides for the Apple C++ Compilers."""
+
+    _CPP23_VERSION = '>=13.0.0'
+    _CPP26_VERSION = '>=16.0.0'

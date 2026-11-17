@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from ..compilers import clike_debug_args, clike_optimization_args
-from ...mesonlib import OptionKey
+from ...options import OptionKey
 
 if T.TYPE_CHECKING:
     from ...environment import Environment
@@ -53,6 +53,12 @@ class PGICompiler(Compiler):
 
     def openmp_flags(self, env: Environment) -> T.List[str]:
         return ['-mp']
+
+    def get_preprocess_only_args(self) -> T.List[str]:
+        return ['-E', '-P', '-o', '-']
+
+    def get_preprocess_to_file_args(self) -> T.List[str]:
+        return ['-E', '-P']
 
     def get_optimization_args(self, optimization_level: str) -> T.List[str]:
         return clike_optimization_args[optimization_level]

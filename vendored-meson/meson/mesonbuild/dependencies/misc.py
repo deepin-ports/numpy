@@ -17,6 +17,7 @@ from .configtool import ConfigToolDependency
 from .detect import packages
 from .factory import DependencyFactory, factory_methods
 from .pkgconfig import PkgConfigDependency
+from ..options import OptionKey
 
 if T.TYPE_CHECKING:
     from ..environment import Environment
@@ -28,7 +29,9 @@ def netcdf_factory(env: 'Environment',
                    for_machine: 'mesonlib.MachineChoice',
                    kwargs: T.Dict[str, T.Any],
                    methods: T.List[DependencyMethods]) -> T.List['DependencyGenerator']:
-    language = kwargs.get('language', 'c')
+    language = kwargs.get('language')
+    if language is None:
+        language = 'c'
     if language not in ('c', 'cpp', 'fortran'):
         raise DependencyException(f'Language {language} is not supported with NetCDF.')
 
@@ -48,6 +51,27 @@ def netcdf_factory(env: 'Environment',
     return candidates
 
 packages['netcdf'] = netcdf_factory
+
+
+class AtomicBuiltinDependency(BuiltinDependency):
+    def __init__(self, name: str, env: Environment, kwargs: T.Dict[str, T.Any]):
+        super().__init__(name, env, kwargs)
+        self.feature_since = ('1.7.0', "consider checking for `atomic_flag_clear` with and without `find_library('atomic')`")
+
+        if self.clib_compiler.has_function('atomic_flag_clear', '#include <stdatomic.h>', env)[0]:
+            self.is_found = True
+
+
+class AtomicSystemDependency(SystemDependency):
+    def __init__(self, name: str, env: Environment, kwargs: T.Dict[str, T.Any]):
+        super().__init__(name, env, kwargs)
+        self.feature_since = ('1.7.0', "consider checking for `atomic_flag_clear` with and without `find_library('atomic')`")
+
+        h = self.clib_compiler.has_header('stdatomic.h', '', env)
+        self.link_args = self.clib_compiler.find_library('atomic', env, [], self.libtype)
+
+        if h[0] and self.link_args:
+            self.is_found = True
 
 
 class DlBuiltinDependency(BuiltinDependency):
@@ -311,7 +335,14 @@ class CursesConfigToolDependency(ConfigToolDependency):
     tools = ['ncursesw6-config', 'ncursesw5-config', 'ncurses6-config', 'ncurses5-config', 'ncurses5.4-config']
 
     def __init__(self, name: str, env: 'Environment', kwargs: T.Dict[str, T.Any], language: T.Optional[str] = None):
-        super().__init__(name, env, kwargs, language)
+        exclude_paths = None
+        # macOS mistakenly ships /usr/bin/ncurses5.4-config and a man page for
+        # it, but none of the headers or libraries. Ignore /usr/bin because it
+        # can only contain this broken configtool script.
+        # Homebrew is /usr/local or /opt/homebrew.
+        if env.machines.build and env.machines.build.system == 'darwin':
+            exclude_paths = ['/usr/bin']
+        super().__init__(name, env, kwargs, language, exclude_paths=exclude_paths)
         if not self.is_found:
             return
         self.compile_args = self.get_config_value(['--cflags'], 'compile_args')
@@ -361,7 +392,7 @@ class CursesSystemDependency(SystemDependency):
                         req = kwargs.get('version')
                         if req:
                             if self.version:
-                                self.is_found = mesonlib.version_compare(self.version, req)
+                                self.is_found, *_ = mesonlib.version_compare_many(self.version, req)
                             else:
                                 mlog.warning('Cannot determine version of curses to compare against.')
 
@@ -541,7 +572,7 @@ def shaderc_factory(env: 'Environment',
         shared_libs = ['shaderc']
         static_libs = ['shaderc_combined', 'shaderc_static']
 
-        if kwargs.get('static', env.coredata.get_option(mesonlib.OptionKey('prefer_static'))):
+        if kwargs.get('static', env.coredata.optstore.get_value_for(OptionKey('prefer_static'))):
             c = [functools.partial(PkgConfigDependency, name, env, kwargs)
                  for name in static_libs + shared_libs]
         else:
@@ -555,6 +586,13 @@ def shaderc_factory(env: 'Environment',
     return candidates
 packages['shaderc'] = shaderc_factory
 
+
+packages['atomic'] = atomic_factory = DependencyFactory(
+    'atomic',
+    [DependencyMethods.SYSTEM, DependencyMethods.BUILTIN],
+    system_class=AtomicSystemDependency,
+    builtin_class=AtomicBuiltinDependency,
+)
 
 packages['cups'] = cups_factory = DependencyFactory(
     'cups',

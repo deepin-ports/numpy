@@ -6,9 +6,9 @@ from __future__ import annotations
 import re
 import typing as T
 
-from . import coredata
 from . import options
 from . import mesonlib
+from .options import OptionKey
 from . import mparser
 from . import mlog
 from .interpreterbase import FeatureNew, FeatureDeprecated, typed_pos_args, typed_kwargs, ContainerTypeInfo, KwargInfo
@@ -18,6 +18,7 @@ if T.TYPE_CHECKING:
     from .interpreterbase import TYPE_var, TYPE_kwargs
     from .interpreterbase import SubProject
     from typing_extensions import TypedDict, Literal
+    from .options import OptionStore
 
     _DEPRECATED_ARGS = T.Union[bool, str, T.Dict[str, str], T.List[str]]
 
@@ -64,10 +65,10 @@ optname_regex = re.compile('[^a-zA-Z0-9_-]')
 
 
 class OptionInterpreter:
-    def __init__(self, subproject: 'SubProject') -> None:
-        self.options: 'coredata.MutableKeyedOptionDictType' = {}
+    def __init__(self, optionstore: 'OptionStore', subproject: 'SubProject') -> None:
+        self.options: options.MutableKeyedOptionDictType = {}
         self.subproject = subproject
-        self.option_types: T.Dict[str, T.Callable[..., options.UserOption]] = {
+        self.option_types: T.Dict[str, T.Callable[..., options.AnyOptionType]] = {
             'string': self.string_parser,
             'boolean': self.boolean_parser,
             'combo': self.combo_parser,
@@ -75,6 +76,7 @@ class OptionInterpreter:
             'array': self.string_array_parser,
             'feature': self.feature_parser,
         }
+        self.optionstore = optionstore
 
     def process(self, option_file: str) -> None:
         try:
@@ -188,8 +190,8 @@ class OptionInterpreter:
         opt_name = args[0]
         if optname_regex.search(opt_name) is not None:
             raise OptionException('Option names can only contain letters, numbers or dashes.')
-        key = mesonlib.OptionKey.from_string(opt_name).evolve(subproject=self.subproject)
-        if not key.is_project():
+        key = OptionKey.from_string(opt_name).evolve(subproject=self.subproject)
+        if self.optionstore.is_reserved_name(key):
             raise OptionException('Option name %s is reserved.' % opt_name)
 
         opt_type = kwargs['type']
@@ -223,7 +225,8 @@ class OptionInterpreter:
         ),
     )
     def boolean_parser(self, name: str, description: str, args: T.Tuple[bool, _DEPRECATED_ARGS], kwargs: BooleanArgs) -> options.UserOption:
-        return options.UserBooleanOption(name, description, kwargs['value'], *args)
+        yielding, deprecated = args
+        return options.UserBooleanOption(name, description, kwargs['value'], yielding=yielding, deprecated=deprecated)
 
     @typed_kwargs(
         'combo option',
@@ -235,7 +238,7 @@ class OptionInterpreter:
         value = kwargs['value']
         if value is None:
             value = kwargs['choices'][0]
-        return options.UserComboOption(name, description, choices, value, *args)
+        return options.UserComboOption(name, description, value, *args, choices=choices)
 
     @typed_kwargs(
         'integer option',
@@ -250,9 +253,8 @@ class OptionInterpreter:
         KwargInfo('max', (int, NoneType)),
     )
     def integer_parser(self, name: str, description: str, args: T.Tuple[bool, _DEPRECATED_ARGS], kwargs: IntegerArgs) -> options.UserOption:
-        value = kwargs['value']
-        inttuple = (kwargs['min'], kwargs['max'], value)
-        return options.UserIntegerOption(name, description, inttuple, *args)
+        return options.UserIntegerOption(
+            name, description, kwargs['value'], *args, min_value=kwargs['min'], max_value=kwargs['max'])
 
     @typed_kwargs(
         'string array option',
@@ -267,10 +269,11 @@ class OptionInterpreter:
                 FeatureDeprecated('String value for array option', '1.3.0').use(self.subproject)
             else:
                 raise mesonlib.MesonException('Value does not define an array: ' + value)
-        return options.UserArrayOption(name, description, value,
-                                       choices=choices,
-                                       yielding=args[0],
-                                       deprecated=args[1])
+        return options.UserStringArrayOption(
+            name, description, value,
+            choices=choices,
+            yielding=args[0],
+            deprecated=args[1])
 
     @typed_kwargs(
         'feature option',

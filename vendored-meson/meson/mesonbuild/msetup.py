@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2016-2018 The Meson development team
-# Copyright © 2023-2024 Intel Corporation
+# Copyright © 2023-2025 Intel Corporation
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ import typing as T
 
 from . import build, coredata, environment, interpreter, mesonlib, mintro, mlog
 from .mesonlib import MesonException
+from .options import OptionKey
 
 if T.TYPE_CHECKING:
     from typing_extensions import Protocol
     from .coredata import SharedCMDOptions
+    from .interpreter import SubprojectHolder
 
     class CMDOptions(SharedCMDOptions, Protocol):
 
@@ -164,7 +166,7 @@ class MesonApp:
             if not self.options.reconfigure and not self.options.wipe:
                 print('Directory already configured.\n\n'
                       'Just run your build command (e.g. ninja) and Meson will regenerate as necessary.\n'
-                      'Run "meson setup --reconfigure to force Meson to regenerate.\n\n'
+                      'Run "meson setup --reconfigure" to force Meson to regenerate.\n\n'
                       'If build failures persist, run "meson setup --wipe" to rebuild from scratch\n'
                       'using the same options as passed when configuring the build.')
                 if self.options.cmd_line_options:
@@ -178,13 +180,38 @@ class MesonApp:
     # See class Backend's 'generate' for comments on capture args and returned dictionary.
     def generate(self, capture: bool = False, vslite_ctx: T.Optional[dict] = None) -> T.Optional[dict]:
         env = environment.Environment(self.source_dir, self.build_dir, self.options)
+        if not env.first_invocation:
+            assert self.options.reconfigure
+            env.coredata.set_from_configure_command(self.options)
         mlog.initialize(env.get_log_dir(), self.options.fatal_warnings)
         if self.options.profile:
             mlog.set_timestamp_start(time.monotonic())
         if self.options.clearcache:
             env.coredata.clear_cache()
-        with mesonlib.BuildDirLock(self.build_dir):
+        with mesonlib.DirectoryLock(self.build_dir, 'meson-private/meson.lock',
+                                    mesonlib.DirectoryLockAction.FAIL,
+                                    'Some other Meson process is already using this build directory. Exiting.'):
             return self._generate(env, capture, vslite_ctx)
+
+    def check_unused_options(self, coredata: 'coredata.CoreData', cmd_line_options: T.Dict[OptionKey, str], all_subprojects: T.Mapping[str, SubprojectHolder]) -> None:
+        errlist: T.List[str] = []
+        known_subprojects = [name for name, obj in all_subprojects.items() if obj.found()]
+        for opt in cmd_line_options:
+            # Accept options that exist or could appear in subsequent reconfigurations,
+            # including options for subprojects that were not used
+            if opt in coredata.optstore or \
+                    opt.evolve(subproject=None) in coredata.optstore or \
+                    coredata.optstore.accept_as_pending_option(opt):
+                continue
+            if opt.subproject and opt.subproject not in known_subprojects:
+                continue
+            # "foo=true" may also refer to toplevel project option ":foo"
+            if opt.subproject is None and coredata.optstore.is_project_option(opt.as_root()):
+                continue
+            errlist.append(f'"{opt}"')
+        if errlist:
+            errstr = ', '.join(errlist)
+            raise MesonException(f'Unknown options: {errstr}')
 
     def _generate(self, env: environment.Environment, capture: bool, vslite_ctx: T.Optional[dict]) -> T.Optional[dict]:
         # Get all user defined options, including options that have been defined
@@ -241,6 +268,9 @@ class MesonApp:
             cdf = env.dump_coredata()
 
             self.finalize_postconf_hooks(b, intr)
+            self.check_unused_options(env.coredata,
+                                      intr.user_defined_options.cmd_line_options,
+                                      intr.subprojects)
             if self.options.profile:
                 localvars = locals()
                 fname = f'profile-{intr.backend.name}-backend.log'
@@ -274,9 +304,9 @@ class MesonApp:
 
             # collect warnings about unsupported build configurations; must be done after full arg processing
             # by Interpreter() init, but this is most visible at the end
-            if env.coredata.optstore.get_value('backend') == 'xcode':
+            if env.coredata.optstore.get_value_for('backend') == 'xcode':
                 mlog.warning('xcode backend is currently unmaintained, patches welcome')
-            if env.coredata.optstore.get_value('layout') == 'flat':
+            if env.coredata.optstore.get_value_for('layout') == 'flat':
                 mlog.warning('-Dlayout=flat is unsupported and probably broken. It was a failed experiment at '
                              'making Windows build artifacts runnable while uninstalled, due to PATH considerations, '
                              'but was untested by CI and anyways breaks reasonable use of conflicting targets in different subdirs. '
@@ -320,10 +350,11 @@ def run_genvslite_setup(options: CMDOptions) -> None:
     # invoke the appropriate 'meson compile ...' build commands upon the normal visual studio build/rebuild/clean actions, instead of using
     # the native VS/msbuild system.
     builddir_prefix = options.builddir
-    genvsliteval = options.cmd_line_options.pop(mesonlib.OptionKey('genvslite'))
+    k_genvslite = OptionKey('genvslite')
+    genvsliteval = options.cmd_line_options.pop(k_genvslite)
     # The command line may specify a '--backend' option, which doesn't make sense in conjunction with
     # '--genvslite', where we always want to use a ninja back end -
-    k_backend = mesonlib.OptionKey('backend')
+    k_backend = OptionKey('backend')
     if k_backend in options.cmd_line_options.keys():
         if options.cmd_line_options[k_backend] != 'ninja':
             raise MesonException('Explicitly specifying a backend option with \'genvslite\' is not necessary '
@@ -336,12 +367,12 @@ def run_genvslite_setup(options: CMDOptions) -> None:
 
     for buildtypestr in buildtypes_list:
         options.builddir = f'{builddir_prefix}_{buildtypestr}' # E.g. builddir_release
-        options.cmd_line_options[mesonlib.OptionKey('buildtype')] = buildtypestr
+        options.cmd_line_options[OptionKey('buildtype')] = buildtypestr
         app = MesonApp(options)
         vslite_ctx[buildtypestr] = app.generate(capture=True)
     #Now for generating the 'lite' solution and project files, which will use these builds we've just set up, above.
     options.builddir = f'{builddir_prefix}_vs'
-    options.cmd_line_options[mesonlib.OptionKey('genvslite')] = genvsliteval
+    options.cmd_line_options[k_genvslite] = genvsliteval
     app = MesonApp(options)
     app.generate(capture=False, vslite_ctx=vslite_ctx)
 
@@ -353,11 +384,11 @@ def run(options: T.Union[CMDOptions, T.List[str]]) -> int:
     coredata.parse_cmd_line_options(options)
 
     # Msetup doesn't actually use this option, but we pass msetup options to
-    # mconf, and it does. We won't actally hit the path that uses it, but don't
+    # mconf, and it does. We won't actually hit the path that uses it, but don't
     # lie
     options.pager = False
 
-    if mesonlib.OptionKey('genvslite') in options.cmd_line_options.keys():
+    if OptionKey('genvslite') in options.cmd_line_options.keys():
         run_genvslite_setup(options)
     else:
         app = MesonApp(options)

@@ -2,6 +2,7 @@
 
 # Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
 # Copyright © 2012 Jakub Wilk <jwilk@debian.org>
+# Copyright © 2025 Timo Röhling <roehling@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -54,7 +55,7 @@ sub has_numpy_capi_reference {
 	local $/ = undef;
 	my $content = <$fd>;
 	close($fd);
-	return $content =~ /numpy\._?core\._multiarray_umath\x00/ and $content =~ /_(?:ARRAY|UFUNC)_API\x00/;
+	return (($content =~ /numpy\._?core\._multiarray_umath\x00/) and ($content =~ /_(?:ARRAY|UFUNC)_API\x00/));
 }
 
 foreach my $package (@{$dh{DOPACKAGES}}) {
@@ -86,7 +87,7 @@ foreach my $package (@{$dh{DOPACKAGES}}) {
 		if ($dh{FORCE} && !$uses_numpy_capi)
 		{
 			$uses_numpy_capi = 1;
-			warning("binary package $package does not depend on the NumPy C ABI, but --force was given");
+			warning("binary package $package does not seem to depend on the NumPy C ABI, but --force was given");
 		}
 		if ($uses_numpy_capi)
 		{
@@ -101,7 +102,10 @@ foreach my $package (@{$dh{DOPACKAGES}}) {
 		}
 		else
 		{
-			warning("skipping binary package $package which does not depend on the NumPy C ABI");
+			if (!$dh{QUIET})
+			{
+				print("dh_numpy3: skipping binary package $package which does not depend on the NumPy C ABI\n");
+			}
 		}
 	}
 }

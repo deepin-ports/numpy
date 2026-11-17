@@ -225,6 +225,34 @@ DESTDIR=/path/to/staging/area meson install -C builddir
 Since *0.60.0* `DESTDIR` and `--destdir` can be a path relative to build
 directory. An absolute path will be set into environment when executing scripts.
 
+### reprotest
+
+*(since 1.6.0)*
+
+{{ reprotest_usage.inc }}
+
+Simple reproducible build tester that compiles the project twice and
+checks whether the end results are identical.
+
+This command must be run in the source root of the project you want to
+test.
+
+{{ reprotest_arguments.inc }}
+
+#### Examples
+
+    meson reprotest
+
+Builds the current project with its default settings.
+
+    meson reprotest --intermediaries -- --buildtype=debugoptimized
+
+Builds the target and also checks that all intermediate files like
+object files are also identical. All command line arguments after the
+`--` are passed directly to the underlying `meson` invocation. Only
+use option arguments, i.e. those that start with a dash, Meson sets
+directory arguments automatically.
+
 ### rewrite
 
 *(since 0.50.0)*
@@ -445,7 +473,7 @@ The following options are recognized:
 - tab_width (int): Width of tab stops, used to compute line length
     when `indent_by` uses tab characters (default is 4).
 - sort_files (bool): When true, arguments of `files()` function are
-    sorted alphabetically (default is false).
+    sorted alphabetically (default is true).
 - group_arg_value (bool): When true, string argument with `--` prefix
     followed by string argument without `--` prefix are grouped on the
     same line, in multiline arguments (default is false).
@@ -460,6 +488,13 @@ the `--editor-config` option on the command line, or with the
 When `--recursive` option is specified, `meson.build` files from
 `subdir` are also analyzed (must be used in conjunction with `--inplace`
 or `--check-only` option).
+
+*Since 1.7.0* You can use `-` as source file name to read source from standard
+input instead of reading it from a file. This cannot be used with `--recursive`
+or `--inline` arguments.
+
+*Since 1.9.0* Using `-` as source file with `--editor-config` now requires
+`--source-file-path` argument to ensure consistent results.
 
 
 #### Differences with `muon fmt`

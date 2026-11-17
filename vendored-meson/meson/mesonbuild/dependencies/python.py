@@ -17,6 +17,7 @@ from .framework import ExtraFrameworkDependency
 from .pkgconfig import PkgConfigDependency
 from ..environment import detect_cpu_family
 from ..programs import ExternalProgram
+from ..options import OptionKey
 
 if T.TYPE_CHECKING:
     from typing_extensions import TypedDict
@@ -234,7 +235,10 @@ class _PythonDependencyBase(_Base):
                     elif imp_lower == 'pypy':
                         libpath = Path(f'libpypy{verdot}-c.dll')
                     else:
-                        libpath = Path(f'python{vernum}.dll')
+                        if self.is_freethreaded:
+                            libpath = Path(f'python{vernum}t.dll')
+                        else:
+                            libpath = Path(f'python{vernum}.dll')
                 else:
                     if self.is_freethreaded:
                         libpath = Path('libs') / f'python{vernum}t.lib'
@@ -246,13 +250,13 @@ class _PythonDependencyBase(_Base):
                     # Python itself (except with pybind11, which has an ugly
                     # hack to work around this) - so emit a warning to explain
                     # the cause of the expected link error.
-                    buildtype = self.env.coredata.get_option(mesonlib.OptionKey('buildtype'))
+                    buildtype = self.env.coredata.optstore.get_value_for(OptionKey('buildtype'))
                     assert isinstance(buildtype, str)
-                    debug = self.env.coredata.get_option(mesonlib.OptionKey('debug'))
+                    debug = self.env.coredata.optstore.get_value_for(OptionKey('debug'))
                     # `debugoptimized` buildtype may not set debug=True currently, see gh-11645
                     is_debug_build = debug or buildtype == 'debug'
                     vscrt_debug = False
-                    if mesonlib.OptionKey('b_vscrt') in self.env.coredata.optstore:
+                    if OptionKey('b_vscrt') in self.env.coredata.optstore:
                         vscrt = self.env.coredata.optstore.get_value('b_vscrt')
                         if vscrt in {'mdd', 'mtd', 'from_buildtype', 'static_from_buildtype'}:
                             vscrt_debug = True
@@ -329,6 +333,15 @@ class PythonPkgConfigDependency(PkgConfigDependency, _PythonDependencyBase):
         if not self.link_libpython and mesonlib.version_compare(self.version, '< 3.8'):
             self.link_args = []
 
+        # But not Apple, because it's a framework
+        if self.env.machines.host.is_darwin() and 'PYTHONFRAMEWORKPREFIX' in self.variables:
+            framework_prefix = self.variables['PYTHONFRAMEWORKPREFIX']
+            # Add rpath, will be de-duplicated if necessary
+            if framework_prefix.startswith('/Applications/Xcode.app/'):
+                self.link_args += ['-Wl,-rpath,' + framework_prefix]
+                if self.raw_link_args is not None:
+                    # When None, self.link_args is used
+                    self.raw_link_args += ['-Wl,-rpath,' + framework_prefix]
 
 class PythonFrameworkDependency(ExtraFrameworkDependency, _PythonDependencyBase):
 
@@ -345,8 +358,14 @@ class PythonSystemDependency(SystemDependency, _PythonDependencyBase):
         SystemDependency.__init__(self, name, environment, kwargs)
         _PythonDependencyBase.__init__(self, installation, kwargs.get('embed', False))
 
-        # match pkg-config behavior
-        if self.link_libpython:
+        # For most platforms, match pkg-config behavior. iOS is a special case;
+        # check for that first, so that check takes priority over
+        # `link_libpython` (which *shouldn't* be set, but just in case)
+        if self.platform.startswith('ios-'):
+            # iOS doesn't use link_libpython - it links with the *framework*.
+            self.link_args = ['-framework', 'Python', '-F', self.variables.get('base_prefix')]
+            self.is_found = True
+        elif self.link_libpython:
             # link args
             if mesonlib.is_windows():
                 self.find_libpy_windows(environment, limited_api=False)
@@ -418,6 +437,9 @@ def python_factory(env: 'Environment', for_machine: 'MachineChoice',
                             del os.environ[name]
                     set_env('PKG_CONFIG_LIBDIR', old_pkg_libdir)
                     set_env('PKG_CONFIG_PATH', old_pkg_path)
+
+            # Otherwise this doesn't fulfill the interface requirements
+            wrap_in_pythons_pc_dir.log_tried = PythonPkgConfigDependency.log_tried  # type: ignore[attr-defined]
 
             candidates.append(functools.partial(wrap_in_pythons_pc_dir, pkg_name, env, kwargs, installation))
             # We only need to check both, if a python install has a LIBPC. It might point to the wrong location,

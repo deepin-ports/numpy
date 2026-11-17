@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright © 2024 Intel Corporation
 
 from pathlib import Path
 import argparse
@@ -11,7 +13,7 @@ from mesonbuild.mesonlib import version_compare
 
 modules = [
     # fully typed submodules
-    # 'mesonbuild/ast/',
+    'mesonbuild/ast/',
     'mesonbuild/cargo/',
     'mesonbuild/cmake/',
     'mesonbuild/compilers/',
@@ -24,25 +26,24 @@ modules = [
     'mesonbuild/wrap/',
 
     # specific files
-    'mesonbuild/ast/introspection.py',
-    'mesonbuild/ast/printer.py',
-    'mesonbuild/ast/postprocess.py',
-    'mesonbuild/ast/visitor.py',
     'mesonbuild/arglist.py',
     'mesonbuild/backend/backends.py',
     'mesonbuild/backend/nonebackend.py',
     # 'mesonbuild/coredata.py',
     'mesonbuild/depfile.py',
     'mesonbuild/envconfig.py',
+    'mesonbuild/environment.py',
     'mesonbuild/interpreter/compiler.py',
     'mesonbuild/interpreter/mesonmain.py',
     'mesonbuild/interpreter/interpreterobjects.py',
     'mesonbuild/interpreter/type_checking.py',
+    'mesonbuild/machinefile.py',
     'mesonbuild/mcompile.py',
     'mesonbuild/mdevenv.py',
     'mesonbuild/utils/core.py',
     'mesonbuild/utils/platform.py',
     'mesonbuild/utils/universal.py',
+    'mesonbuild/utils/vsenv.py',
     'mesonbuild/mconf.py',
     'mesonbuild/mdist.py',
     'mesonbuild/mformat.py',
@@ -52,6 +53,7 @@ modules = [
     'mesonbuild/mlog.py',
     'mesonbuild/msubprojects.py',
     'mesonbuild/modules/__init__.py',
+    'mesonbuild/modules/cmake.py',
     'mesonbuild/modules/cuda.py',
     'mesonbuild/modules/external_project.py',
     'mesonbuild/modules/fs.py',
@@ -76,7 +78,9 @@ modules = [
     'mesonbuild/msetup.py',
     'mesonbuild/mtest.py',
     'mesonbuild/optinterpreter.py',
+    'mesonbuild/options.py',
     'mesonbuild/programs.py',
+    'mesonbuild/rewriter.py',
 ]
 additional = [
     'run_mypy.py',
@@ -85,6 +89,7 @@ additional = [
     'tools',
     'docs/genrefman.py',
     'docs/refman',
+    'unittests/helpers.py',
 ]
 
 if os.name == 'posix':
@@ -104,8 +109,6 @@ def check_mypy() -> None:
         sys.exit(1)
 
 def main() -> int:
-    check_mypy()
-
     root = Path(__file__).absolute().parent
 
     parser = argparse.ArgumentParser(description='Process some integers.')
@@ -117,6 +120,9 @@ def main() -> int:
     parser.add_argument('--allver', action='store_true', help='Check all supported versions of python')
 
     opts, args = parser.parse_known_args()
+    if not opts.mypy:
+        check_mypy()
+
     if opts.pretty:
         args.append('--pretty')
 

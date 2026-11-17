@@ -12,10 +12,10 @@ from .. import mesonlib
 from ..arglist import CompilerArgs
 from ..linkers import RSPFileSyntax
 from ..mesonlib import (
-    EnvironmentException, version_compare, OptionKey, is_windows
+    EnvironmentException, version_compare, is_windows
 )
+from ..options import OptionKey
 
-from . import compilers
 from .compilers import (
     clike_debug_args,
     Compiler,
@@ -25,7 +25,8 @@ from .mixins.gnu import GnuCompiler
 from .mixins.gnu import gnu_common_warning_args
 
 if T.TYPE_CHECKING:
-    from ..build import DFeatures
+    from . import compilers
+    from ..build import BuildTarget, DFeatures
     from ..dependencies import Dependency
     from ..envconfig import MachineInfo
     from ..environment import Environment
@@ -174,9 +175,8 @@ class DmdLikeCompilerMixin(CompilerMixinBase):
     def gen_import_library_args(self, implibname: str) -> T.List[str]:
         return self.linker.import_library_args(implibname)
 
-    def build_rpath_args(self, env: 'Environment', build_dir: str, from_dir: str,
-                         rpath_paths: T.Tuple[str, ...], build_rpath: str,
-                         install_rpath: str) -> T.Tuple[T.List[str], T.Set[bytes]]:
+    def build_rpath_args(self, env: Environment, build_dir: str, from_dir: str,
+                         target: BuildTarget, extra_paths: T.Optional[T.List[str]] = None) -> T.Tuple[T.List[str], T.Set[bytes]]:
         if self.info.is_windows():
             return ([], set())
 
@@ -187,7 +187,7 @@ class DmdLikeCompilerMixin(CompilerMixinBase):
             # split into two separate arguments both prefaced with the -L=.
             args: T.List[str] = []
             (rpath_args, rpath_dirs_to_remove) = super().build_rpath_args(
-                    env, build_dir, from_dir, rpath_paths, build_rpath, install_rpath)
+                    env, build_dir, from_dir, target)
             for r in rpath_args:
                 if ',' in r:
                     a, b = r.split(',', maxsplit=1)
@@ -198,7 +198,7 @@ class DmdLikeCompilerMixin(CompilerMixinBase):
             return (args, rpath_dirs_to_remove)
 
         return super().build_rpath_args(
-            env, build_dir, from_dir, rpath_paths, build_rpath, install_rpath)
+            env, build_dir, from_dir, target)
 
     @classmethod
     def _translate_args_to_nongnu(cls, args: T.List[str], info: MachineInfo, link_id: str) -> T.List[str]:
@@ -455,15 +455,7 @@ class DCompiler(Compiler):
         if pc.returncode != 0:
             raise EnvironmentException('D compiler %s cannot compile programs.' % self.name_string())
 
-        if self.is_cross:
-            if not environment.has_exe_wrapper():
-                # Can't check if the binaries run so we have to assume they do
-                return
-            cmdlist = environment.exe_wrapper.get_command() + [output_name]
-        else:
-            cmdlist = [output_name]
-        if subprocess.call(cmdlist) != 0:
-            raise EnvironmentException('Executables created by D compiler %s are not runnable.' % self.name_string())
+        stdo, stde = self.run_sanity_check(environment, [output_name], work_dir)
 
     def needs_static_linker(self) -> bool:
         return True

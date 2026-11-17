@@ -39,15 +39,16 @@ defaults: T.Dict[str, T.List[str]] = {}
 if is_windows():
     # Intel C and C++ compiler is icl on Windows, but icc and icpc elsewhere.
     # Search for icl before cl, since Intel "helpfully" provides a
-    # cl.exe that returns *exactly the same thing* that microsofts
+    # cl.exe that returns *exactly the same thing* that Microsoft's
     # cl.exe does, and if icl is present, it's almost certainly what
     # you want.
     defaults['c'] = ['icl', 'cl', 'cc', 'gcc', 'clang', 'clang-cl', 'pgcc']
     # There is currently no pgc++ for Windows, only for  Mac and Linux.
     defaults['cpp'] = ['icl', 'cl', 'c++', 'g++', 'clang++', 'clang-cl']
-    defaults['fortran'] = ['ifort', 'gfortran', 'flang', 'pgfortran', 'g95']
+    # the binary flang-new will be renamed to flang in the foreseeable future
+    defaults['fortran'] = ['ifort', 'gfortran', 'flang-new', 'flang', 'pgfortran', 'g95']
     defaults['objc'] = ['clang', 'clang-cl', 'gcc']
-    defaults['objcpp'] = ['clang-cl', 'clang-cl', 'g++']
+    defaults['objcpp'] = ['clang++', 'clang-cl', 'g++']
     defaults['cs'] = ['csc', 'mcs']
 else:
     if platform.machine().lower() == 'e2k':
@@ -60,7 +61,8 @@ else:
         defaults['cpp'] = ['c++', 'g++', 'clang++', 'nvc++', 'pgc++', 'icpc', 'icpx']
         defaults['objc'] = ['clang', 'gcc']
         defaults['objcpp'] = ['clang++', 'g++']
-    defaults['fortran'] = ['gfortran', 'flang', 'nvfortran', 'pgfortran', 'ifort', 'ifx', 'g95']
+    # the binary flang-new will be renamed to flang in the foreseeable future
+    defaults['fortran'] = ['gfortran', 'flang-new', 'flang', 'nvfortran', 'pgfortran', 'ifort', 'ifx', 'g95']
     defaults['cs'] = ['mcs', 'csc']
 defaults['d'] = ['ldc2', 'ldc', 'gdc', 'dmd']
 defaults['java'] = ['javac']
@@ -96,6 +98,7 @@ def compiler_from_language(env: 'Environment', lang: str, for_machine: MachineCh
         'cython': detect_cython_compiler,
         'nasm': detect_nasm_compiler,
         'masm': detect_masm_compiler,
+        'linearasm': detect_linearasm_compiler,
     }
     return lang_map[lang](env, for_machine) if lang in lang_map else None
 
@@ -104,7 +107,7 @@ def detect_compiler_for(env: 'Environment', lang: str, for_machine: MachineChoic
     if comp is None:
         return comp
     assert comp.for_machine == for_machine
-    env.coredata.process_compiler_options(lang, comp, env, subproject)
+    env.coredata.process_compiler_options(lang, comp, subproject)
     if not skip_sanity_check:
         comp.sanity_check(env.get_scratch_dir(), env)
     env.coredata.compilers[comp.for_machine][lang] = comp
@@ -179,7 +182,7 @@ def detect_static_linker(env: 'Environment', compiler: Compiler) -> StaticLinker
             else:
                 trials = default_linkers
         elif compiler.id == 'intel-cl' and compiler.language == 'c': # why not cpp? Is this a bug?
-            # Intel has its own linker that acts like microsoft's lib
+            # Intel has its own linker that acts like Microsoft's lib
             trials = [['xilib']]
         elif is_windows() and compiler.id == 'pgi': # this handles cpp / nvidia HPC, in addition to just c/fortran
             trials = [['ar']]  # For PGI on Windows, "ar" is just a wrapper calling link/lib.
@@ -238,6 +241,8 @@ def detect_static_linker(env: 'Environment', compiler: Compiler) -> StaticLinker
                 return linkers.MetrowerksStaticLinkerARM(linker)
             else:
                 return linkers.MetrowerksStaticLinkerEmbeddedPowerPC(linker)
+        if 'TASKING VX-toolset' in err:
+            return linkers.TaskingStaticLinker(linker)
         if p.returncode == 0:
             return linkers.ArLinker(compiler.for_machine, linker)
         if p.returncode == 1 and err.startswith('usage'): # OSX
@@ -278,7 +283,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
         compiler_name = os.path.basename(compiler[0])
 
         if any(os.path.basename(x) in {'cl', 'cl.exe', 'clang-cl', 'clang-cl.exe'} for x in compiler):
-            # Watcom C provides it's own cl.exe clone that mimics an older
+            # Watcom C provides its own cl.exe clone that mimics an older
             # version of Microsoft's compiler. Since Watcom's cl.exe is
             # just a wrapper, we skip using it if we detect its presence
             # so as not to confuse Meson when configuring for MSVC.
@@ -361,7 +366,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
 
         if 'Emscripten' in out:
             cls = c.EmscriptenCCompiler if lang == 'c' else cpp.EmscriptenCPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
 
             # emcc requires a file input in order to pass arguments to the
             # linker. It'll exit with an error code, but still print the
@@ -405,7 +410,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             full_version = arm_ver_str
             cls = c.ArmclangCCompiler if lang == 'c' else cpp.ArmclangCPPCompiler
             linker = linkers.ArmClangDynamicLinker(for_machine, version=version)
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             return cls(
                 ccache, compiler, version, for_machine, is_cross, info,
                 full_version=full_version, linker=linker)
@@ -440,7 +445,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             if identifier in out:
                 cls = compiler_classes[0] if lang == 'c' else compiler_classes[1]
                 lnk = compiler_classes[2]
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = lnk(compiler, for_machine, version=version)
                 return cls(
                     ccache, compiler, version, for_machine, is_cross, info,
@@ -477,7 +482,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             version = search_version(err)
             target = 'x86' if 'IA-32' in err else 'x86_64'
             cls = c.IntelClCCompiler if lang == 'c' else cpp.IntelClCPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.XilinkDynamicLinker(for_machine, [], version=version)
             return cls(
                 compiler, version, for_machine, is_cross, info, target,
@@ -486,7 +491,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
             version = search_version(err)
             target = 'x86' if 'IA-32' in err else 'x86_64'
             cls = c.IntelLLVMClCCompiler if lang == 'c' else cpp.IntelLLVMClCPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.XilinkDynamicLinker(for_machine, [], version=version)
             return cls(
                 compiler, version, for_machine, is_cross, info, target,
@@ -519,14 +524,14 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
                 full_version=cl_signature, linker=linker)
         if 'PGI Compilers' in out:
             cls = c.PGICCompiler if lang == 'c' else cpp.PGICPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.PGIDynamicLinker(compiler, for_machine, cls.LINKER_PREFIX, [], version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross,
                 info, linker=linker)
         if 'NVIDIA Compilers and Tools' in out:
             cls = c.NvidiaHPC_CCompiler if lang == 'c' else cpp.NvidiaHPC_CPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.NvidiaHPC_DynamicLinker(compiler, for_machine, cls.LINKER_PREFIX, [], version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross,
@@ -545,14 +550,14 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
                 full_version=full_version, linker=l)
         if 'ARM' in out and not ('Metrowerks' in out or 'Freescale' in out):
             cls = c.ArmCCompiler if lang == 'c' else cpp.ArmCPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.ArmDynamicLinker(for_machine, version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross,
                 info, full_version=full_version, linker=linker)
         if 'RX Family' in out:
             cls = c.CcrxCCompiler if lang == 'c' else cpp.CcrxCPPCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.CcrxDynamicLinker(for_machine, version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross, info,
@@ -560,7 +565,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
 
         if 'Microchip Technology' in out:
             cls = c.Xc16CCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.Xc16DynamicLinker(for_machine, version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross, info,
@@ -568,7 +573,7 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
 
         if 'CompCert' in out:
             cls = c.CompCertCCompiler
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             linker = linkers.CompCertDynamicLinker(for_machine, version=version)
             return cls(
                 ccache, compiler, version, for_machine, is_cross, info,
@@ -583,17 +588,17 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
                 lnk = linkers.MetrowerksLinkerEmbeddedPowerPC
 
             mwcc_ver_match = re.search(r'Version (\d+)\.(\d+)\.?(\d+)? build (\d+)', out)
-            assert mwcc_ver_match is not None, 'for mypy'  # because mypy *should* be complaning that this could be None
+            assert mwcc_ver_match is not None, 'for mypy'  # because mypy *should* be complaining that this could be None
             compiler_version = '.'.join(x for x in mwcc_ver_match.groups() if x is not None)
 
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             ld = env.lookup_binary_entry(for_machine, cls.language + '_ld')
 
             if ld is not None:
                 _, o_ld, _ = Popen_safe(ld + ['--version'])
 
                 mwld_ver_match = re.search(r'Version (\d+)\.(\d+)\.?(\d+)? build (\d+)', o_ld)
-                assert mwld_ver_match is not None, 'for mypy'  # because mypy *should* be complaning that this could be None
+                assert mwld_ver_match is not None, 'for mypy'  # because mypy *should* be complaining that this could be None
                 linker_version = '.'.join(x for x in mwld_ver_match.groups() if x is not None)
 
                 linker = lnk(ld, for_machine, version=linker_version)
@@ -602,6 +607,23 @@ def _detect_c_or_cpp_compiler(env: 'Environment', lang: str, for_machine: Machin
 
             return cls(
                 ccache, compiler, compiler_version, for_machine, is_cross, info,
+                full_version=full_version, linker=linker)
+        if 'TASKING VX-toolset' in err:
+            cls = c.TaskingCCompiler
+            lnk = linkers.TaskingLinker
+
+            tasking_ver_match = re.search(r'v([0-9]+)\.([0-9]+)r([0-9]+) Build ([0-9]+)', err)
+            assert tasking_ver_match is not None, 'for mypy'
+            tasking_version = '.'.join(x for x in tasking_ver_match.groups() if x is not None)
+
+            env.add_lang_args(cls.language, cls, for_machine)
+            ld = env.lookup_binary_entry(for_machine, cls.language + '_ld')
+            if ld is None:
+                raise MesonException(f'{cls.language}_ld was not properly defined in your cross file')
+
+            linker = lnk(ld, for_machine, version=tasking_version)
+            return cls(
+                ccache, compiler, tasking_version, for_machine, is_cross, info,
                 full_version=full_version, linker=linker)
 
     _handle_exceptions(popen_exceptions, compilers)
@@ -614,7 +636,8 @@ def detect_cpp_compiler(env: 'Environment', for_machine: MachineChoice) -> Compi
     return _detect_c_or_cpp_compiler(env, 'cpp', for_machine)
 
 def detect_cuda_compiler(env: 'Environment', for_machine: MachineChoice) -> Compiler:
-    from .cuda import CudaCompiler
+    from .cuda import CudaCompiler, Phase
+    from ..options import OptionKey
     from ..linkers.linkers import CudaLinker
     popen_exceptions = {}
     is_cross = env.is_cross_build(for_machine)
@@ -645,7 +668,13 @@ def detect_cuda_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
         version = out.strip().rsplit('V', maxsplit=1)[-1]
         cpp_compiler = detect_cpp_compiler(env, for_machine)
         cls = CudaCompiler
-        env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+        env.add_lang_args(cls.language, cls, for_machine)
+        key = OptionKey('cuda_link_args', machine=for_machine)
+        if key in env.options:
+            # To fix LDFLAGS issue
+            val = env.options[key]
+            assert isinstance(val, list)
+            env.coredata.set_options({key: cls.to_host_flags_base(val, Phase.LINKER)})
         linker = CudaLinker(compiler, for_machine, CudaCompiler.LINKER_PREFIX, [], version=CudaLinker.parse_version())
         return cls(ccache, compiler, version, for_machine, is_cross, host_compiler=cpp_compiler, info=info, linker=linker)
     raise EnvironmentException(f'Could not find suitable CUDA compiler: "{"; ".join([" ".join(c) for c in compilers])}"')
@@ -659,6 +688,13 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
     info = env.machines[for_machine]
     cls: T.Type[FortranCompiler]
     for compiler in compilers:
+        # capture help text for possible fallback
+        try:
+            _, help_out, _ = Popen_safe_logged(compiler + ['--help'], msg='Detecting compiler via')
+        except OSError as e:
+            popen_exceptions[join_args(compiler + ['--help'])] = e
+            help_out = ''
+
         for arg in ['--version', '-V']:
             try:
                 p, out, err = Popen_safe_logged(compiler + [arg], msg='Detecting compiler via')
@@ -723,7 +759,7 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
                 version = search_version(err)
                 target = 'x86' if 'IA-32' in err else 'x86_64'
                 cls = fortran.IntelLLVMClFortranCompiler
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = linkers.XilinkDynamicLinker(for_machine, [], version=version)
                 return cls(
                     compiler, version, for_machine, is_cross, info,
@@ -733,7 +769,7 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
                 version = search_version(err)
                 target = 'x86' if 'IA-32' in err else 'x86_64'
                 cls = fortran.IntelClFortranCompiler
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = linkers.XilinkDynamicLinker(for_machine, [], version=version)
                 return cls(
                     compiler, version, for_machine, is_cross, info,
@@ -760,7 +796,7 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
 
             if 'PGI Compilers' in out:
                 cls = fortran.PGIFortranCompiler
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = linkers.PGIDynamicLinker(compiler, for_machine,
                                                   cls.LINKER_PREFIX, [], version=version)
                 return cls(
@@ -769,15 +805,14 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
 
             if 'NVIDIA Compilers and Tools' in out:
                 cls = fortran.NvidiaHPC_FortranCompiler
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = linkers.PGIDynamicLinker(compiler, for_machine,
                                                   cls.LINKER_PREFIX, [], version=version)
                 return cls(
                     compiler, version, for_machine, is_cross, info,
                     full_version=full_version, linker=linker)
 
-            if 'flang' in out or 'clang' in out:
-                cls = fortran.FlangFortranCompiler
+            def _get_linker_try_windows(cls: T.Type['Compiler']) -> T.Optional['DynamicLinker']:
                 linker = None
                 if 'windows' in out or env.machines[for_machine].is_windows():
                     # If we're in a MINGW context this actually will use a gnu
@@ -793,6 +828,18 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
                 if linker is None:
                     linker = guess_nix_linker(env, compiler, cls,
                                               version, for_machine)
+                return linker
+
+            if 'flang-new' in out or 'flang LLVM compiler' in help_out:
+                cls = fortran.LlvmFlangFortranCompiler
+                linker = _get_linker_try_windows(cls)
+                return cls(
+                    compiler, version, for_machine, is_cross, info,
+                    full_version=full_version, linker=linker)
+
+            if 'flang' in out or 'clang' in out:
+                cls = fortran.ClassicFlangFortranCompiler
+                linker = _get_linker_try_windows(cls)
                 return cls(
                     compiler, version, for_machine, is_cross, info,
                     full_version=full_version, linker=linker)
@@ -809,7 +856,7 @@ def detect_fortran_compiler(env: 'Environment', for_machine: MachineChoice) -> C
                 full_version = err.split('\n', 1)[0]
                 version = full_version.split()[-1]
                 cls = fortran.NAGFortranCompiler
-                env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+                env.add_lang_args(cls.language, cls, for_machine)
                 linker = linkers.NAGDynamicLinker(
                     compiler, for_machine, cls.LINKER_PREFIX, [],
                     version=version)
@@ -850,9 +897,13 @@ def _detect_objc_or_objcpp_compiler(env: 'Environment', lang: str, for_machine: 
             version = _get_gnu_version_from_defines(defines)
             comp = objc.GnuObjCCompiler if lang == 'objc' else objcpp.GnuObjCPPCompiler
             linker = guess_nix_linker(env, compiler, comp, version, for_machine)
-            return comp(
+            c = comp(
                 ccache, compiler, version, for_machine, is_cross, info,
                 defines, linker=linker)
+            if not c.compiles('int main(void) { return 0; }', env)[0]:
+                popen_exceptions[join_args(compiler)] = f'GCC was not built with support for {"objective-c" if lang == "objc" else "objective-c++"}'
+                continue
+            return c
         if 'clang' in out:
             linker = None
             defines = _get_clang_compiler_defines(compiler, lang)
@@ -897,7 +948,7 @@ def detect_java_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
             if len(parts) > 1:
                 version = parts[1]
         comp_class = JavaCompiler
-        env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+        env.add_lang_args(comp_class.language, comp_class, for_machine)
         return comp_class(exelist, version, for_machine, info)
     raise EnvironmentException('Unknown compiler: ' + join_args(exelist))
 
@@ -921,7 +972,7 @@ def detect_cs_compiler(env: 'Environment', for_machine: MachineChoice) -> Compil
             cls = cs.VisualStudioCsCompiler
         else:
             continue
-        env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+        env.add_lang_args(cls.language, cls, for_machine)
         return cls(comp, version, for_machine, info)
 
     _handle_exceptions(popen_exceptions, compilers)
@@ -951,7 +1002,7 @@ def detect_cython_compiler(env: 'Environment', for_machine: MachineChoice) -> Co
             version = search_version(err)
         if version is not None:
             comp_class = CythonCompiler
-            env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+            env.add_lang_args(comp_class.language, comp_class, for_machine)
             return comp_class([], comp, version, for_machine, info, is_cross=is_cross)
     _handle_exceptions(popen_exceptions, compilers)
     raise EnvironmentException('Unreachable code (exception to make mypy happy)')
@@ -972,7 +1023,7 @@ def detect_vala_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
     version = search_version(out)
     if 'Vala' in out:
         comp_class = ValaCompiler
-        env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+        env.add_lang_args(comp_class.language, comp_class, for_machine)
         return comp_class(exelist, version, for_machine, is_cross, info)
     raise EnvironmentException('Unknown compiler: ' + join_args(exelist))
 
@@ -996,10 +1047,14 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
             popen_exceptions[join_args(compiler + arg)] = e
             continue
 
-        version = search_version(out)
+        # Full version contains the "-nightly" or "-beta" suffixes, but version
+        # should just be X.Y.Z
+        full_version = search_version(out)
+        version = full_version.split('-', 1)[0]
+
         cls: T.Type[RustCompiler] = rust.RustCompiler
 
-        # Clippy is a wrapper around rustc, but it doesn't have rustc in it's
+        # Clippy is a wrapper around rustc, but it doesn't have rustc in its
         # output. We can otherwise treat it as rustc.
         if 'clippy' in out:
             # clippy returns its own version and not the rustc version by
@@ -1012,9 +1067,14 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
             except OSError as e:
                 popen_exceptions[join_args(compiler + arg)] = e
                 continue
-            version = search_version(out)
+            full_version = search_version(out)
+            version = full_version.split('-', 1)[0]
 
             cls = rust.ClippyRustCompiler
+            mlog.deprecation(
+                'clippy-driver is not intended as a general purpose compiler. '
+                'You can use "ninja clippy" in order to run clippy on a '
+                'meson project.')
 
         if 'rustc' in out:
             # On Linux and mac rustc will invoke gcc (clang for mac
@@ -1039,7 +1099,7 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
                 extra_args: T.Dict[str, T.Union[str, bool]] = {}
                 always_args: T.List[str] = []
                 if is_link_exe:
-                    compiler.extend(cls.use_linker_args(cc.linker.exelist[0], ''))
+                    compiler.extend(cls.use_linker_args(cc.linker.get_exe(), ''))
                     extra_args['direct'] = True
                     extra_args['machine'] = cc.linker.machine
                 else:
@@ -1062,8 +1122,8 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
                                              version=cc.linker.version, **extra_args)               # type: ignore
                 else:
                     linker = type(cc.linker)(compiler, for_machine, cc.LINKER_PREFIX,
-                                             always_args=always_args, version=cc.linker.version,
-                                             **extra_args)
+                                             always_args=always_args, system=cc.linker.system,
+                                             version=cc.linker.version, **extra_args)
             elif 'link' in override[0]:
                 linker = guess_win_linker(env,
                                           override, cls, version, for_machine, use_linker_prefix=False)
@@ -1071,7 +1131,7 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
                 # inserts the correct prefix itself.
                 assert isinstance(linker, linkers.VisualStudioLikeLinkerMixin)
                 linker.direct = True
-                compiler.extend(cls.use_linker_args(linker.exelist[0], ''))
+                compiler.extend(cls.use_linker_args(linker.get_exe(), ''))
             else:
                 # On linux and macos rust will invoke the c compiler for
                 # linking, on windows it will use lld-link or link.exe.
@@ -1085,10 +1145,10 @@ def detect_rust_compiler(env: 'Environment', for_machine: MachineChoice) -> Rust
                 c = linker.exelist[1] if linker.exelist[0].endswith('ccache') else linker.exelist[0]
                 compiler.extend(cls.use_linker_args(c, ''))
 
-            env.coredata.add_lang_args(cls.language, cls, for_machine, env)
+            env.add_lang_args(cls.language, cls, for_machine)
             return cls(
                 compiler, version, for_machine, is_cross, info,
-                linker=linker)
+                linker=linker, full_version=full_version)
 
     _handle_exceptions(popen_exceptions, compilers)
     raise EnvironmentException('Unreachable code (exception to make mypy happy)')
@@ -1131,7 +1191,11 @@ def detect_d_compiler(env: 'Environment', for_machine: MachineChoice) -> Compile
         version = search_version(out)
         full_version = out.split('\n', 1)[0]
 
-        if 'LLVM D compiler' in out:
+        # The OpenD fork should stay close enough to upstream D (in
+        # the areas that interest us) to allow supporting them both
+        # without much hassle.
+        # See: https://github.com/orgs/opendlang/discussions/56
+        if 'LLVM D compiler' in out or 'LLVM Open D compiler' in out:
             cls = d.LLVMDCompiler
             # LDC seems to require a file
             # We cannot use NamedTemporaryFile on windows, its documented
@@ -1228,7 +1292,7 @@ def detect_swift_compiler(env: 'Environment', for_machine: MachineChoice) -> Com
             cls = SwiftCompiler
             linker = guess_nix_linker(env,
                                       exelist, cls, version, for_machine,
-                                      extra_args=[f.name])
+                                      extra_args=[f.name, '-o', '/dev/null'])
         return cls(
             exelist, version, for_machine, is_cross, info, linker=linker)
 
@@ -1265,20 +1329,20 @@ def detect_nasm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
         version = search_version(output)
         if 'NASM' in output:
             comp_class = NasmCompiler
-            env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+            env.add_lang_args(comp_class.language, comp_class, for_machine)
             return comp_class([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
         elif 'yasm' in output:
             comp_class = YasmCompiler
-            env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+            env.add_lang_args(comp_class.language, comp_class, for_machine)
             return comp_class([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
         elif 'Metrowerks' in output or 'Freescale' in output:
             if 'ARM' in output:
                 comp_class_mwasmarm = MetrowerksAsmCompilerARM
-                env.coredata.add_lang_args(comp_class_mwasmarm.language, comp_class_mwasmarm, for_machine, env)
+                env.add_lang_args(comp_class_mwasmarm.language, comp_class_mwasmarm, for_machine)
                 return comp_class_mwasmarm([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
             else:
                 comp_class_mwasmeppc = MetrowerksAsmCompilerEmbeddedPowerPC
-                env.coredata.add_lang_args(comp_class_mwasmeppc.language, comp_class_mwasmeppc, for_machine, env)
+                env.add_lang_args(comp_class_mwasmeppc.language, comp_class_mwasmeppc, for_machine)
                 return comp_class_mwasmeppc([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
 
     _handle_exceptions(popen_exceptions, compilers)
@@ -1319,7 +1383,27 @@ def detect_masm_compiler(env: 'Environment', for_machine: MachineChoice) -> Comp
     try:
         output = Popen_safe(comp + [arg])[2]
         version = search_version(output)
-        env.coredata.add_lang_args(comp_class.language, comp_class, for_machine, env)
+        env.add_lang_args(comp_class.language, comp_class, for_machine)
+        return comp_class([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
+    except OSError as e:
+        popen_exceptions[' '.join(comp + [arg])] = e
+    _handle_exceptions(popen_exceptions, [comp])
+    raise EnvironmentException('Unreachable code (exception to make mypy happy)')
+
+def detect_linearasm_compiler(env: Environment, for_machine: MachineChoice) -> Compiler:
+    from .asm import TILinearAsmCompiler
+    comp = ['cl6x']
+    comp_class: T.Type[Compiler] = TILinearAsmCompiler
+    arg = '-h'
+    info = env.machines[for_machine]
+    cc = detect_c_compiler(env, for_machine)
+    is_cross = env.is_cross_build(for_machine)
+
+    popen_exceptions: T.Dict[str, Exception] = {}
+    try:
+        output = Popen_safe(comp + [arg])[2]
+        version = search_version(output)
+        env.add_lang_args(comp_class.language, comp_class, for_machine)
         return comp_class([], comp, version, for_machine, info, cc.linker, is_cross=is_cross)
     except OSError as e:
         popen_exceptions[' '.join(comp + [arg])] = e
@@ -1409,13 +1493,12 @@ def _get_clang_compiler_defines(compiler: T.List[str], lang: str) -> T.Dict[str,
         # based on the driver.
         lang = clang_lang_map[lang]
 
-        # The compiler may not infer the target language based on the driver name
-        # so first, try with '-cpp -x lang', then fallback without given it's less
-        # portable. We try with '-cpp' as GCC needs it for Fortran at least, and
-        # it seems to do no harm.
-        output = _try_obtain_compiler_defines(['-cpp', '-x', lang] + baseline_test_args)
+        # The compiler may not infer the target language based on the driver name.
+        # Try first with '-x lang' to supported systemwide language level overrides,
+        # then fallback to without since it's a more recent option.
+        output = _try_obtain_compiler_defines(['-x', lang] + baseline_test_args)
     except (EnvironmentException, KeyError):
-        mlog.debug(f'pre-processor extraction using -cpp -x {lang} failed, falling back w/o lang')
+        mlog.debug(f'pre-processor extraction using -x {lang} failed, falling back w/o lang')
         output = _try_obtain_compiler_defines(baseline_test_args)
 
     defines: T.Dict[str, str] = {}

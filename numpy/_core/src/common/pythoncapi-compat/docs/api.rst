@@ -26,8 +26,94 @@ Latest version of the header file:
 `pythoncapi_compat.h <https://raw.githubusercontent.com/python/pythoncapi-compat/main/pythoncapi_compat.h>`_.
 
 
+Python 3.15
+-----------
+
+.. c:function:: PyBytesWriter* PyBytesWriter_Create(Py_ssize_t size)
+.. c:function:: void* PyBytesWriter_GetData(PyBytesWriter *writer)
+.. c:function:: Py_ssize_t PyBytesWriter_GetSize(PyBytesWriter *writer)
+.. c:function:: PyObject* PyBytesWriter_FinishWithSize(PyBytesWriter *writer, Py_ssize_t size)
+.. c:function:: PyObject* PyBytesWriter_Finish(PyBytesWriter *writer)
+.. c:function:: PyObject* PyBytesWriter_FinishWithPointer(PyBytesWriter *writer, void *buf)
+.. c:function:: void PyBytesWriter_Discard(PyBytesWriter *writer)
+.. c:function:: int PyBytesWriter_Resize(PyBytesWriter *writer, Py_ssize_t size)
+.. c:function:: int PyBytesWriter_Grow(PyBytesWriter *writer, Py_ssize_t size)
+.. c:function:: void* PyBytesWriter_GrowAndUpdatePointer(PyBytesWriter *writer, Py_ssize_t size, void *buf)
+.. c:function:: int PyBytesWriter_WriteBytes(PyBytesWriter *writer, const void *bytes, Py_ssize_t size)
+.. c:function:: int PyBytesWriter_Format(PyBytesWriter *writer, const char *format, ...)
+
+   See `PyBytesWriter documentation  <https://docs.python.org/dev/c-api/bytes.html#pybyteswriter>`__.
+
+.. c:function:: PyObject* PySys_GetAttr(const char *name)
+
+   See `PySys_GetAttr() documentation  <https://docs.python.org/dev/c-api/sys.html#c.PySys_GetAttr>`__.
+
+.. c:function:: PyObject* PySys_GetAttrString(const char *name)
+
+   See `PySys_GetAttrString() documentation  <https://docs.python.org/dev/c-api/sys.html#c.PySys_GetAttrString>`__.
+
+.. c:function:: PyObject* PySys_GetOptionalAttr(const char *name)
+
+   See `PySys_GetOptionalAttr() documentation  <https://docs.python.org/dev/c-api/sys.html#c.PySys_GetOptionalAttr>`__.
+
+.. c:function:: PyObject* PySys_GetOptionalAttrString(const char *name)
+
+   See `PySys_GetOptionalAttrString() documentation  <https://docs.python.org/dev/c-api/sys.html#c.PySys_GetOptionalAttrString>`__.
+
+.. c:function:: PyObject* PyTuple_FromArray(PyObject *const *array, Py_ssize_t size)
+
+   See `PyTuple_FromArray() documentation  <https://docs.python.org/dev/c-api/tuple.html#c.PyTuple_FromArray>`__.
+
+.. c:function:: Py_hash_t PyUnstable_Unicode_GET_CACHED_HASH(PyObject *op)
+
+   See `PyUnstable_Unicode_GET_CACHED_HASH() documentation  <https://docs.python.org/dev/c-api/unicode.html#c.PyUnstable_Unicode_GET_CACHED_HASH>`__.
+
+   On PyPy, always returns ``-1``.
+
+.. c:function:: int PyUnstable_SetImmortal(PyObject *op)
+
+   See `PyUnstable_SetImmortal() documentation  <https://docs.python.org/dev/c-api/object.html#c.PyUnstable_SetImmortal>`__.
+
+   Availability: Python 3.13 and newer, not available on PyPy.
+
 Python 3.14
 -----------
+
+.. c:struct:: PyLongLayout
+
+   See `PyLongLayout documentation <https://docs.python.org/dev/c-api/long.html#c.PyLongLayout>`__.
+
+.. c:function:: const PyLongLayout* PyLong_GetNativeLayout(void)
+
+   See `PyLong_GetNativeLayout() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLong_GetNativeLayout>`__.
+
+.. c:struct:: PyLongExport
+
+   See `PyLongExport documentation <https://docs.python.org/dev/c-api/long.html#c.PyLongExport>`__.
+
+.. c:function:: int PyLong_Export(PyObject *obj, PyLongExport *export_long)
+
+   See `PyLong_Export() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLong_Export>`__.
+
+.. c:function:: void PyLong_FreeExport(PyLongExport *export_long)
+
+   See `PyLong_FreeExport() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLong_FreeExport>`__.
+
+.. c:struct:: PyLongWriter
+
+   See `PyLongWriter documentation <https://docs.python.org/dev/c-api/long.html#c.PyLongWriter>`__.
+
+.. c:function:: PyLongWriter* PyLongWriter_Create(int negative, Py_ssize_t ndigits, void **digits)
+
+   See `PyLongWriter_Create() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLongWriter_Create>`__.
+
+.. c:function:: PyObject* PyLongWriter_Finish(PyLongWriter *writer)
+
+   See `PyLongWriter_Finish() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLongWriter_Finish>`__.
+
+.. c:function:: void PyLongWriter_Discard(PyLongWriter *writer)
+
+   See `PyLongWriter_Discard() documentation  <https://docs.python.org/dev/c-api/long.html#c.PyLongWriter_Discard>`__.
 
 .. c:function:: int PyLong_IsPositive(PyObject *obj)
 
@@ -81,6 +167,10 @@ Python 3.14
 
    See `PyUnicodeWriter_WriteUTF8() documentation <https://docs.python.org/dev/c-api/unicode.html#c.PyUnicodeWriter_WriteUTF8>`__.
 
+.. c:function:: int PyUnicodeWriter_WriteASCII(PyUnicodeWriter *writer, const char *str, Py_ssize_t size)
+
+   See `PyUnicodeWriter_WriteASCII() documentation <https://docs.python.org/dev/c-api/unicode.html#c.PyUnicodeWriter_WriteASCII>`__.
+
 .. c:function:: int PyUnicodeWriter_WriteWideChar(PyUnicodeWriter *writer, const wchar_t *str, Py_ssize_t size)
 
    See `PyUnicodeWriter_WriteWideChar() documentation <https://docs.python.org/dev/c-api/unicode.html#c.PyUnicodeWriter_WriteWideChar>`__.
@@ -133,11 +223,28 @@ Python 3.14
 
    See `PyLong_FromUInt64() documentation <https://docs.python.org/dev/c-api/long.html#c.PyLong_FromUInt64>`__.
 
+.. c:function:: FILE* Py_fopen(PyObject *path, const char *mode)
+
+   See `Py_fopen() documentation <https://docs.python.org/dev/c-api/sys.html#c.Py_fopen>`__.
+
+.. c:function:: int Py_fclose(FILE *file)
+
+   See `Py_fclose() documentation <https://docs.python.org/dev/c-api/sys.html#c.Py_fclose>`__.
+
+.. c:function:: PyObject* PyConfig_Get(const char *name)
+
+   See `PyConfig_Get() documentation <https://docs.python.org/dev/c-api/init_config.html#c.PyConfig_Get>`__.
+
+.. c:function:: int PyConfig_GetInt(const char *name, int *value)
+
+   See `PyConfig_GetInt() documentation <https://docs.python.org/dev/c-api/init_config.html#c.PyConfig_GetInt>`__.
+
+.. c:function:: int PyUnstable_Object_IsUniquelyReferenced(PyObject *op)
+
+   See `PyUnstable_Object_IsUniquelyReferenced() documentation <https://docs.python.org/dev/c-api/object.html#c.PyUnstable_Object_IsUniquelyReferenced>`__.
 
 Not supported:
 
-* ``PyConfig_Get()``
-* ``PyConfig_GetInt()``
 * ``PyConfig_Names()``
 * ``PyConfig_Set()``
 * ``PyInitConfig_AddModule()``

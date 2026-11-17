@@ -1,0 +1,602 @@
+From: =?utf-8?q?Timo_R=C3=B6hling?= <roehling@debian.org>
+Date: Mon, 29 Jun 2026 00:34:26 +0200
+Subject: Fix pytest 9.1 deprecation warnings
+
+Origin: upstream, https://github.com/numpy/numpy/pull/31669
+Forwarded: not-needed
+Author: Joren Hammudoglu
+---
+ numpy/_core/tests/test_array_coercion.py           |  29 +++---
+ .../tests/test_casting_floatingpoint_errors.py     |   2 +-
+ numpy/_core/tests/test_casting_unittests.py        |   6 +-
+ numpy/_core/tests/test_dlpack.py                   |   3 +-
+ numpy/_core/tests/test_dtype.py                    | 111 +--------------------
+ numpy/_core/tests/test_multiarray.py               |   8 +-
+ numpy/_core/tests/test_numeric.py                  |  15 +--
+ numpy/_core/tests/test_ufunc.py                    |   2 +-
+ numpy/_core/tests/test_umath.py                    |  64 ++++++------
+ numpy/f2py/tests/test_array_from_pyobj.py          |   5 +-
+ numpy/lib/tests/test_packbits.py                   |   6 +-
+ numpy/ma/tests/test_core.py                        |   6 +-
+ numpy/polynomial/tests/test_printing.py            |  12 ++-
+ numpy/typing/tests/test_typing.py                  |   8 +-
+ 14 files changed, 89 insertions(+), 188 deletions(-)
+
+diff --git a/numpy/_core/tests/test_array_coercion.py b/numpy/_core/tests/test_array_coercion.py
+index ba28e88..ebe6686 100644
+--- a/numpy/_core/tests/test_array_coercion.py
++++ b/numpy/_core/tests/test_array_coercion.py
+@@ -16,16 +16,15 @@ from numpy.testing import IS_64BIT, IS_PYPY, assert_array_equal
+ 
+ 
+ def arraylikes():
+-    """
+-    Generator for functions converting an array into various array-likes.
+-    If full is True (default) it includes array-likes not capable of handling
+-    all dtypes.
+-    """
++    """Test parameters for functions converting an array into various array-likes."""
++
++    params = []
++
+     # base array:
+     def ndarray(a):
+         return a
+ 
+-    yield param(ndarray, id="ndarray")
++    params.append(param(ndarray, id="ndarray"))
+ 
+     # subclass:
+     class MyArr(np.ndarray):
+@@ -34,7 +33,7 @@ def arraylikes():
+     def subclass(a):
+         return a.view(MyArr)
+ 
+-    yield subclass
++    params.append(subclass)
+ 
+     class _SequenceLike:
+         # Older NumPy versions, sometimes cared whether a protocol array was
+@@ -56,10 +55,10 @@ def arraylikes():
+                 return self.a
+             return self.a.astype(dtype)
+ 
+-    yield param(ArrayDunder, id="__array__")
++    params.append(param(ArrayDunder, id="__array__"))
+ 
+     # memory-view
+-    yield param(memoryview, id="memoryview")
++    params.append(param(memoryview, id="memoryview"))
+ 
+     # Array-interface
+     class ArrayInterface:
+@@ -67,7 +66,7 @@ def arraylikes():
+             self.a = a  # need to hold on to keep interface valid
+             self.__array_interface__ = a.__array_interface__
+ 
+-    yield param(ArrayInterface, id="__array_interface__")
++    params.append(param(ArrayInterface, id="__array_interface__"))
+ 
+     # Array-Struct
+     class ArrayStruct:
+@@ -75,7 +74,9 @@ def arraylikes():
+             self.a = a  # need to hold on to keep struct valid
+             self.__array_struct__ = a.__array_struct__
+ 
+-    yield param(ArrayStruct, id="__array_struct__")
++    params.append(param(ArrayStruct, id="__array_struct__"))
++
++    return params
+ 
+ 
+ def scalar_instances(times=True, extended_precision=True, user_dtype=True):
+@@ -226,7 +227,7 @@ class TestScalarDiscovery:
+         assert arr.shape == ()
+         assert arr.dtype == np.dtype("O")
+ 
+-    @pytest.mark.parametrize("scalar", scalar_instances())
++    @pytest.mark.parametrize("scalar", list(scalar_instances()))
+     def test_scalar(self, scalar):
+         arr = np.array(scalar)
+         assert arr.shape == ()
+@@ -258,7 +259,7 @@ class TestScalarDiscovery:
+                 # Will currently always go to object dtype
+                 assert arr.dtype == np.dtype("O")
+ 
+-    @pytest.mark.parametrize("scalar", scalar_instances())
++    @pytest.mark.parametrize("scalar", list(scalar_instances()))
+     def test_scalar_coercion(self, scalar):
+         # This tests various scalar coercion paths, mainly for the numerical
+         # types. It includes some paths not directly related to `np.array`.
+@@ -284,7 +285,7 @@ class TestScalarDiscovery:
+ 
+     @pytest.mark.xfail(IS_PYPY, reason="`int(np.complex128(3))` fails on PyPy")
+     @pytest.mark.filterwarnings("ignore::numpy.exceptions.ComplexWarning")
+-    @pytest.mark.parametrize("cast_to", scalar_instances())
++    @pytest.mark.parametrize("cast_to", list(scalar_instances()))
+     def test_scalar_coercion_same_as_cast_and_assignment(self, cast_to):
+         """
+         Test that in most cases:
+diff --git a/numpy/_core/tests/test_casting_floatingpoint_errors.py b/numpy/_core/tests/test_casting_floatingpoint_errors.py
+index 2f9c01f..b7909a0 100644
+--- a/numpy/_core/tests/test_casting_floatingpoint_errors.py
++++ b/numpy/_core/tests/test_casting_floatingpoint_errors.py
+@@ -138,7 +138,7 @@ def check_operations(dtype, value):
+     yield flat_assignment
+ 
+ @pytest.mark.skipif(IS_WASM, reason="no wasm fp exception support")
+-@pytest.mark.parametrize(["value", "dtype"], values_and_dtypes())
++@pytest.mark.parametrize(["value", "dtype"], list(values_and_dtypes()))
+ @pytest.mark.filterwarnings("ignore::numpy.exceptions.ComplexWarning")
+ def test_floatingpoint_errors_casting(dtype, value):
+     dtype = np.dtype(dtype)
+diff --git a/numpy/_core/tests/test_casting_unittests.py b/numpy/_core/tests/test_casting_unittests.py
+index 5f643f8..4cb18e9 100644
+--- a/numpy/_core/tests/test_casting_unittests.py
++++ b/numpy/_core/tests/test_casting_unittests.py
+@@ -28,12 +28,14 @@ simple_dtypes = [type(np.dtype(c)) for c in simple_dtypes]
+ 
+ 
+ def simple_dtype_instances():
++    params = []
+     for dtype_class in simple_dtypes:
+         dt = dtype_class()
+-        yield pytest.param(dt, id=str(dt))
++        params.append(pytest.param(dt, id=str(dt)))
+         if dt.byteorder != "|":
+             dt = dt.newbyteorder()
+-            yield pytest.param(dt, id=str(dt))
++            params.append(pytest.param(dt, id=str(dt)))
++    return params
+ 
+ 
+ def get_expected_stringlength(dtype):
+diff --git a/numpy/_core/tests/test_dlpack.py b/numpy/_core/tests/test_dlpack.py
+index e8198ac..1ee87b3 100644
+--- a/numpy/_core/tests/test_dlpack.py
++++ b/numpy/_core/tests/test_dlpack.py
+@@ -7,14 +7,13 @@ from numpy.testing import IS_PYPY, assert_array_equal
+ 
+ 
+ def new_and_old_dlpack():
+-    yield np.arange(5)
+ 
+     class OldDLPack(np.ndarray):
+         # Support only the "old" version
+         def __dlpack__(self, stream=None):
+             return super().__dlpack__(stream=None)
+ 
+-    yield np.arange(5).view(OldDLPack)
++    return [np.arange(5), np.arange(5).view(OldDLPack)]
+ 
+ 
+ class TestDLPack:
+diff --git a/numpy/_core/tests/test_dtype.py b/numpy/_core/tests/test_dtype.py
+index 157d3e4..21d1bd2 100644
+--- a/numpy/_core/tests/test_dtype.py
++++ b/numpy/_core/tests/test_dtype.py
+@@ -823,115 +823,6 @@ def iter_struct_object_dtypes():
+     yield pytest.param(dt, p, 12, obj, id="<structured subarray 2>")
+ 
+ 
+-@pytest.mark.skipif(
+-    sys.version_info >= (3, 12),
+-    reason="Python 3.12 has immortal refcounts, this test will no longer "
+-           "work. See gh-23986"
+-)
+-@pytest.mark.skipif(not HAS_REFCOUNT, reason="Python lacks refcounts")
+-class TestStructuredObjectRefcounting:
+-    """These tests cover various uses of complicated structured types which
+-    include objects and thus require reference counting.
+-    """
+-    @pytest.mark.parametrize(['dt', 'pat', 'count', 'singleton'],
+-                             iter_struct_object_dtypes())
+-    @pytest.mark.parametrize(["creation_func", "creation_obj"], [
+-        pytest.param(np.empty, None,
+-             # None is probably used for too many things
+-             marks=pytest.mark.skip("unreliable due to python's behaviour")),
+-        (np.ones, 1),
+-        (np.zeros, 0)])
+-    def test_structured_object_create_delete(self, dt, pat, count, singleton,
+-                                             creation_func, creation_obj):
+-        """Structured object reference counting in creation and deletion"""
+-        # The test assumes that 0, 1, and None are singletons.
+-        gc.collect()
+-        before = sys.getrefcount(creation_obj)
+-        arr = creation_func(3, dt)
+-
+-        now = sys.getrefcount(creation_obj)
+-        assert now - before == count * 3
+-        del arr
+-        now = sys.getrefcount(creation_obj)
+-        assert now == before
+-
+-    @pytest.mark.parametrize(['dt', 'pat', 'count', 'singleton'],
+-                             iter_struct_object_dtypes())
+-    def test_structured_object_item_setting(self, dt, pat, count, singleton):
+-        """Structured object reference counting for simple item setting"""
+-        one = 1
+-
+-        gc.collect()
+-        before = sys.getrefcount(singleton)
+-        arr = np.array([pat] * 3, dt)
+-        assert sys.getrefcount(singleton) - before == count * 3
+-        # Fill with `1` and check that it was replaced correctly:
+-        before2 = sys.getrefcount(one)
+-        arr[...] = one
+-        after2 = sys.getrefcount(one)
+-        assert after2 - before2 == count * 3
+-        del arr
+-        gc.collect()
+-        assert sys.getrefcount(one) == before2
+-        assert sys.getrefcount(singleton) == before
+-
+-    @pytest.mark.parametrize(['dt', 'pat', 'count', 'singleton'],
+-                             iter_struct_object_dtypes())
+-    @pytest.mark.parametrize(
+-        ['shape', 'index', 'items_changed'],
+-        [((3,), ([0, 2],), 2),
+-         ((3, 2), ([0, 2], slice(None)), 4),
+-         ((3, 2), ([0, 2], [1]), 2),
+-         ((3,), ([True, False, True]), 2)])
+-    def test_structured_object_indexing(self, shape, index, items_changed,
+-                                        dt, pat, count, singleton):
+-        """Structured object reference counting for advanced indexing."""
+-        # Use two small negative values (should be singletons, but less likely
+-        # to run into race-conditions).  This failed in some threaded envs
+-        # When using 0 and 1.  If it fails again, should remove all explicit
+-        # checks, and rely on `pytest-leaks` reference count checker only.
+-        val0 = -4
+-        val1 = -5
+-
+-        arr = np.full(shape, val0, dt)
+-
+-        gc.collect()
+-        before_val0 = sys.getrefcount(val0)
+-        before_val1 = sys.getrefcount(val1)
+-        # Test item getting:
+-        part = arr[index]
+-        after_val0 = sys.getrefcount(val0)
+-        assert after_val0 - before_val0 == count * items_changed
+-        del part
+-        # Test item setting:
+-        arr[index] = val1
+-        gc.collect()
+-        after_val0 = sys.getrefcount(val0)
+-        after_val1 = sys.getrefcount(val1)
+-        assert before_val0 - after_val0 == count * items_changed
+-        assert after_val1 - before_val1 == count * items_changed
+-
+-    @pytest.mark.parametrize(['dt', 'pat', 'count', 'singleton'],
+-                             iter_struct_object_dtypes())
+-    def test_structured_object_take_and_repeat(self, dt, pat, count, singleton):
+-        """Structured object reference counting for specialized functions.
+-        The older functions such as take and repeat use different code paths
+-        then item setting (when writing this).
+-        """
+-        indices = [0, 1]
+-
+-        arr = np.array([pat] * 3, dt)
+-        gc.collect()
+-        before = sys.getrefcount(singleton)
+-        res = arr.take(indices)
+-        after = sys.getrefcount(singleton)
+-        assert after - before == count * 2
+-        new = res.repeat(10)
+-        gc.collect()
+-        after_repeat = sys.getrefcount(singleton)
+-        assert after_repeat - after == count * 2 * 10
+-
+-
+ class TestStructuredDtypeSparseFields:
+     """Tests subarray fields which contain sparse dtypes so that
+     not all memory is used by the dtype work. Such dtype's should
+@@ -1952,7 +1843,7 @@ class TestFromCTypes:
+         self.check(ctypes.c_uint8.__ctype_be__, np.dtype('u1'))
+ 
+     all_types = set(np.typecodes['All'])
+-    all_pairs = permutations(all_types, 2)
++    all_pairs = list(permutations(all_types, 2))
+ 
+     @pytest.mark.parametrize("pair", all_pairs)
+     def test_pairs(self, pair):
+diff --git a/numpy/_core/tests/test_multiarray.py b/numpy/_core/tests/test_multiarray.py
+index 4df27ee..115847f 100644
+--- a/numpy/_core/tests/test_multiarray.py
++++ b/numpy/_core/tests/test_multiarray.py
+@@ -4841,9 +4841,11 @@ class TestArgmaxArgminCommon:
+              (3, 4, 1, 2), (4, 1, 2, 3),
+              (64,), (128,), (256,)]
+ 
+-    @pytest.mark.parametrize("size, axis", itertools.chain(*[[(size, axis)
+-        for axis in list(range(-len(size), len(size))) + [None]]
+-        for size in sizes]))
++    @pytest.mark.parametrize("size, axis", [
++        (size, axis)
++        for size in sizes
++        for axis in [*range(-len(size), len(size)), None]
++    ])
+     @pytest.mark.parametrize('method', [np.argmax, np.argmin])
+     def test_np_argmin_argmax_keepdims(self, size, axis, method):
+ 
+diff --git a/numpy/_core/tests/test_numeric.py b/numpy/_core/tests/test_numeric.py
+index 1047f4c..b34b4b8 100644
+--- a/numpy/_core/tests/test_numeric.py
++++ b/numpy/_core/tests/test_numeric.py
+@@ -1327,11 +1327,14 @@ class TestTypes:
+ 
+     @pytest.mark.slow
+     @pytest.mark.filterwarnings('ignore:Promotion of numbers:FutureWarning')
+-    @pytest.mark.parametrize(["dtype1", "dtype2"],
+-            itertools.product(
+-                list(np.typecodes["All"]) +
+-                ["i,i", "S3", "S100", "U3", "U100", rational],
+-                repeat=2))
++    @pytest.mark.parametrize(
++        "dtype1",
++        [*np.typecodes["All"], "i,i", "S3", "S100", "U3", "U100", rational],
++    )
++    @pytest.mark.parametrize(
++        "dtype2",
++        [*np.typecodes["All"], "i,i", "S3", "S100", "U3", "U100", rational],
++    )
+     def test_promote_types_metadata(self, dtype1, dtype2):
+         """Metadata handling in promotion does not appear formalized
+         right now in NumPy. This test should thus be considered to
+@@ -2205,7 +2208,7 @@ def _test_array_equal_parametrizations():
+ 
+ class TestArrayComparisons:
+     @pytest.mark.parametrize(
+-        "bx,by,equal_nan,expected", _test_array_equal_parametrizations()
++        "bx,by,equal_nan,expected", list(_test_array_equal_parametrizations())
+     )
+     def test_array_equal_equal_nan(self, bx, by, equal_nan, expected):
+         """
+diff --git a/numpy/_core/tests/test_ufunc.py b/numpy/_core/tests/test_ufunc.py
+index fd90d84..fc6dc57 100644
+--- a/numpy/_core/tests/test_ufunc.py
++++ b/numpy/_core/tests/test_ufunc.py
+@@ -1786,7 +1786,7 @@ class TestUfunc:
+         a = a[1:, 1:, 1:]
+         yield a
+ 
+-    @pytest.mark.parametrize("arrs", identityless_reduce_arrs())
++    @pytest.mark.parametrize("arrs", list(identityless_reduce_arrs()))
+     @pytest.mark.parametrize("pos", [(1, 0, 0), (0, 1, 0), (0, 0, 1)])
+     def test_identityless_reduction(self, arrs, pos):
+         # np.minimum.reduce is an identityless reduction
+diff --git a/numpy/_core/tests/test_umath.py b/numpy/_core/tests/test_umath.py
+index 8bbb9f1..7fd9ae3 100644
+--- a/numpy/_core/tests/test_umath.py
++++ b/numpy/_core/tests/test_umath.py
+@@ -477,31 +477,30 @@ class TestDivision:
+         assert_equal(x % 100, [5, 10, 90, 0, 95, 90, 10, 0, 80])
+ 
+     @pytest.mark.skipif(IS_WASM, reason="fp errors don't work in wasm")
+-    @pytest.mark.parametrize("dtype,ex_val", itertools.product(
+-        sctypes['int'] + sctypes['uint'], (
+-            (
+-                # dividend
+-                "np.array(range(fo.max-lsize, fo.max)).astype(dtype),"
+-                # divisors
+-                "np.arange(lsize).astype(dtype),"
+-                # scalar divisors
+-                "range(15)"
+-            ),
+-            (
+-                # dividend
+-                "np.arange(fo.min, fo.min+lsize).astype(dtype),"
+-                # divisors
+-                "np.arange(lsize//-2, lsize//2).astype(dtype),"
+-                # scalar divisors
+-                "range(fo.min, fo.min + 15)"
+-            ), (
+-                # dividend
+-                "np.array(range(fo.max-lsize, fo.max)).astype(dtype),"
+-                # divisors
+-                "np.arange(lsize).astype(dtype),"
+-                # scalar divisors
+-                "[1,3,9,13,neg, fo.min+1, fo.min//2, fo.max//3, fo.max//4]"
+-            )
++    @pytest.mark.parametrize("dtype", sctypes['int'] + sctypes['uint'])
++    @pytest.mark.parametrize("ex_val", (
++        (
++            # dividend
++            "np.array(range(fo.max-lsize, fo.max)).astype(dtype),"
++            # divisors
++            "np.arange(lsize).astype(dtype),"
++            # scalar divisors
++            "range(15)"
++        ),
++        (
++            # dividend
++            "np.arange(fo.min, fo.min+lsize).astype(dtype),"
++            # divisors
++            "np.arange(lsize//-2, lsize//2).astype(dtype),"
++            # scalar divisors
++            "range(fo.min, fo.min + 15)"
++        ), (
++            # dividend
++            "np.array(range(fo.max-lsize, fo.max)).astype(dtype),"
++            # divisors
++            "np.arange(lsize).astype(dtype),"
++            # scalar divisors
++            "[1,3,9,13,neg, fo.min+1, fo.min//2, fo.max//3, fo.max//4]"
+         )
+     ))
+     def test_division_int_boundary(self, dtype, ex_val):
+@@ -563,13 +562,12 @@ class TestDivision:
+             np.array([], dtype=dtype) // 0
+ 
+     @pytest.mark.skipif(IS_WASM, reason="fp errors don't work in wasm")
+-    @pytest.mark.parametrize("dtype,ex_val", itertools.product(
+-        sctypes['int'] + sctypes['uint'], (
+-            "np.array([fo.max, 1, 2, 1, 1, 2, 3], dtype=dtype)",
+-            "np.array([fo.min, 1, -2, 1, 1, 2, -3]).astype(dtype)",
+-            "np.arange(fo.min, fo.min+(100*10), 10, dtype=dtype)",
+-            "np.array(range(fo.max-(100*7), fo.max, 7)).astype(dtype)",
+-        )
++    @pytest.mark.parametrize("dtype", sctypes['int'] + sctypes['uint'])
++    @pytest.mark.parametrize("ex_val", (
++        "np.array([fo.max, 1, 2, 1, 1, 2, 3], dtype=dtype)",
++        "np.array([fo.min, 1, -2, 1, 1, 2, -3]).astype(dtype)",
++        "np.arange(fo.min, fo.min+(100*10), 10, dtype=dtype)",
++        "np.array(range(fo.max-(100*7), fo.max, 7)).astype(dtype)",
+     ))
+     def test_division_int_reduce(self, dtype, ex_val):
+         fo = np.iinfo(dtype)
+@@ -2823,7 +2821,7 @@ class TestBitwiseUFuncs:
+             assert_(type(f.reduce(btype)) is bool, msg)
+ 
+     @pytest.mark.parametrize("input_dtype_obj, bitsize",
+-            zip(bitwise_types, bitwise_bits))
++            list(zip(bitwise_types, bitwise_bits)))
+     def test_bitwise_count(self, input_dtype_obj, bitsize):
+         input_dtype = input_dtype_obj.type
+ 
+diff --git a/numpy/f2py/tests/test_array_from_pyobj.py b/numpy/f2py/tests/test_array_from_pyobj.py
+index 15383e9..6c1ebbf 100644
+--- a/numpy/f2py/tests/test_array_from_pyobj.py
++++ b/numpy/f2py/tests/test_array_from_pyobj.py
+@@ -371,9 +371,10 @@ class TestIntent:
+ class TestSharedMemory:
+ 
+     @pytest.fixture(autouse=True, scope="class", params=_type_names)
+-    def setup_type(self, request):
++    @classmethod
++    def setup_type(cls, request):
+         request.cls.type = Type(request.param)
+-        request.cls.array = lambda self, dims, intent, obj: Array(
++        request.cls.array = lambda cls, dims, intent, obj: Array(
+             Type(request.param), dims, intent, obj)
+ 
+     @property
+diff --git a/numpy/lib/tests/test_packbits.py b/numpy/lib/tests/test_packbits.py
+index 0b0e9d1..eceeaee 100644
+--- a/numpy/lib/tests/test_packbits.py
++++ b/numpy/lib/tests/test_packbits.py
+@@ -1,5 +1,3 @@
+-from itertools import chain
+-
+ import pytest
+ 
+ import numpy as np
+@@ -300,7 +298,7 @@ class TestCount:
+     padded2[:7, :7] = x
+ 
+     @pytest.mark.parametrize('bitorder', ('little', 'big'))
+-    @pytest.mark.parametrize('count', chain(range(58), range(-1, -57, -1)))
++    @pytest.mark.parametrize('count', [*range(58), *range(-1, -57, -1)])
+     def test_roundtrip(self, bitorder, count):
+         if count < 0:
+             # one extra zero of padding
+@@ -324,7 +322,7 @@ class TestCount:
+ 
+     @pytest.mark.parametrize('bitorder', ('little', 'big'))
+     # delta==-1 when count<0 because one extra zero of padding
+-    @pytest.mark.parametrize('count', chain(range(8), range(-1, -9, -1)))
++    @pytest.mark.parametrize('count', [*range(8), *range(-1, -9, -1)])
+     def test_roundtrip_axis(self, bitorder, count):
+         if count < 0:
+             # one extra zero of padding
+diff --git a/numpy/ma/tests/test_core.py b/numpy/ma/tests/test_core.py
+index ff87e59..c0b3ae6 100644
+--- a/numpy/ma/tests/test_core.py
++++ b/numpy/ma/tests/test_core.py
+@@ -1148,7 +1148,8 @@ class TestMaskedArrayArithmetic:
+         return x, y, a10, m1, m2, xm, ym, z, zm, xf
+ 
+     @pytest.fixture(autouse=True, scope="class")
+-    def err_status(self):
++    @classmethod
++    def err_status(cls):
+         err = np.geterr()
+         np.seterr(divide='ignore', invalid='ignore')
+         yield err
+@@ -2606,7 +2607,8 @@ class TestUfuncs:
+                   array([1.0, 0, -1, pi / 2] * 2, mask=[1, 0] + [0] * 6),)
+ 
+     @pytest.fixture(autouse=True, scope="class")
+-    def err_status(self):
++    @classmethod
++    def err_status(cls):
+         err = np.geterr()
+         np.seterr(divide='ignore', invalid='ignore')
+         yield err
+diff --git a/numpy/polynomial/tests/test_printing.py b/numpy/polynomial/tests/test_printing.py
+index f7d0131..99bfef2 100644
+--- a/numpy/polynomial/tests/test_printing.py
++++ b/numpy/polynomial/tests/test_printing.py
+@@ -14,7 +14,8 @@ from numpy.testing import assert_, assert_equal
+ class TestStrUnicodeSuperSubscripts:
+ 
+     @pytest.fixture(scope='class', autouse=True)
+-    def use_unicode(self):
++    @classmethod
++    def use_unicode(cls):
+         poly.set_default_printstyle('unicode')
+ 
+     @pytest.mark.parametrize(('inp', 'tgt'), (
+@@ -97,7 +98,8 @@ class TestStrUnicodeSuperSubscripts:
+ class TestStrAscii:
+ 
+     @pytest.fixture(scope='class', autouse=True)
+-    def use_ascii(self):
++    @classmethod
++    def use_ascii(cls):
+         poly.set_default_printstyle('ascii')
+ 
+     @pytest.mark.parametrize(('inp', 'tgt'), (
+@@ -183,7 +185,8 @@ class TestStrAscii:
+ class TestLinebreaking:
+ 
+     @pytest.fixture(scope='class', autouse=True)
+-    def use_ascii(self):
++    @classmethod
++    def use_ascii(cls):
+         poly.set_default_printstyle('ascii')
+ 
+     def test_single_line_one_less(self):
+@@ -506,7 +509,8 @@ class TestPrintOptions:
+     """
+ 
+     @pytest.fixture(scope='class', autouse=True)
+-    def use_ascii(self):
++    @classmethod
++    def use_ascii(cls):
+         poly.set_default_printstyle('ascii')
+ 
+     def test_str(self):
+diff --git a/numpy/typing/tests/test_typing.py b/numpy/typing/tests/test_typing.py
+index ca4cf37..af0df64 100644
+--- a/numpy/typing/tests/test_typing.py
++++ b/numpy/typing/tests/test_typing.py
+@@ -30,8 +30,6 @@ else:
+     NO_MYPY = False
+ 
+ if TYPE_CHECKING:
+-    from collections.abc import Iterator
+-
+     # We need this as annotation, but it's located in a private namespace.
+     # As a compromise, do *not* import it during runtime
+     from _pytest.mark.structures import ParameterSet
+@@ -116,7 +114,8 @@ def run_mypy() -> None:
+                 filename = None
+ 
+ 
+-def get_test_cases(*directories: str) -> "Iterator[ParameterSet]":
++def get_test_cases(*directories: str) -> list["ParameterSet"]:
++    test_cases = []
+     for directory in directories:
+         for root, _, files in os.walk(directory):
+             for fname in files:
+@@ -125,7 +124,8 @@ def get_test_cases(*directories: str) -> "Iterator[ParameterSet]":
+                     continue
+ 
+                 fullpath = os.path.join(root, fname)
+-                yield pytest.param(fullpath, id=short_fname)
++                test_cases.append(pytest.param(fullpath, id=short_fname))
++    return test_cases
+ 
+ 
+ _FAIL_INDENT = " " * 4

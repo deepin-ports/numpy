@@ -29,7 +29,7 @@ cross_file["properties"]["longdouble_format"] = repr(
         "m68k": "MOTOROLA_EXTENDED_12_BYTES_BE",
         "mips64el": "IEEE_QUAD_LE",
         "ppc64": "IBM_DOUBLE_DOUBLE_BE",
-        "ppc64el": "IBM_DOUBLE_DOUBLE_LE",
+        "ppc64el": "IEEE_QUAD_LE",
         "riscv64": "IEEE_QUAD_LE",
         "s390x": "IEEE_QUAD_BE",
         "sparc64": "IEEE_QUAD_BE",

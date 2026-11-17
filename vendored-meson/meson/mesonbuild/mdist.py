@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2017 The Meson development team
-# Copyright © 2023 Intel Corporation
+# Copyright © 2023-2025 Intel Corporation
 
 from __future__ import annotations
 
 
 import abc
 import argparse
-import gzip
 import os
 import sys
 import shlex
@@ -23,7 +22,8 @@ from glob import glob
 from pathlib import Path
 from mesonbuild.environment import Environment, detect_ninja
 from mesonbuild.mesonlib import (GIT, MesonException, RealPathAction, get_meson_command, quiet_git,
-                                 windows_proof_rmtree, setup_vsenv, OptionKey)
+                                 windows_proof_rmtree, setup_vsenv)
+from .options import OptionKey
 from mesonbuild.msetup import add_arguments as msetup_argparse
 from mesonbuild.wrap import wrap
 from mesonbuild import mlog, build, coredata
@@ -39,6 +39,9 @@ archive_extension = {'bztar': '.tar.bz2',
                      'gztar': '.tar.gz',
                      'xztar': '.tar.xz',
                      'zip': '.zip'}
+
+if sys.version_info >= (3, 14):
+    tarfile.TarFile.extraction_filter = staticmethod(tarfile.fully_trusted_filter)
 
 # Note: when adding arguments, please also add them to the completion
 # scripts in $MESONSRC/data/shell-completions/
@@ -293,6 +296,7 @@ class HgDist(Dist):
                 shutil.copyfileobj(tf, bf)
             output_names.append(bz2name)
         if 'gztar' in archives:
+            import gzip
             with gzip.open(gzname, 'wb') as zf, open(tarname, 'rb') as tf:
                 shutil.copyfileobj(tf, zf)
             output_names.append(gzname)
@@ -320,7 +324,7 @@ def run_dist_steps(meson_command: T.List[str], unpacked_src_dir: str, builddir: 
         return 1
     return 0
 
-def check_dist(packagename: str, meson_command: ImmutableListProtocol[str], extra_meson_args: T.List[str], bld_root: str, privdir: str) -> int:
+def check_dist(packagename: str, _meson_command: ImmutableListProtocol[str], extra_meson_args: T.List[str], bld_root: str, privdir: str) -> int:
     print(f'Testing distribution package {packagename}')
     unpackdir = os.path.join(privdir, 'dist-unpack')
     builddir = os.path.join(privdir, 'dist-build')
@@ -334,6 +338,7 @@ def check_dist(packagename: str, meson_command: ImmutableListProtocol[str], extr
     unpacked_files = glob(os.path.join(unpackdir, '*'))
     assert len(unpacked_files) == 1
     unpacked_src_dir = unpacked_files[0]
+    meson_command = _meson_command.copy()
     meson_command += ['setup']
     meson_command += create_cmdline_args(bld_root)
     meson_command += extra_meson_args
@@ -372,7 +377,7 @@ def run(options: argparse.Namespace) -> int:
     if not buildfile.is_file():
         raise MesonException(f'Directory {options.wd!r} does not seem to be a Meson build directory.')
     b = build.load(options.wd)
-    need_vsenv = T.cast('bool', b.environment.coredata.get_option(OptionKey('vsenv')))
+    need_vsenv = T.cast('bool', b.environment.coredata.optstore.get_value_for(OptionKey('vsenv')))
     setup_vsenv(need_vsenv)
     src_root = b.environment.source_dir
     bld_root = b.environment.build_dir

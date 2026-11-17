@@ -26,7 +26,6 @@ Build-Depends:
  python3-pytest-xdist <!nocheck>,
  python3-setuptools <!nocheck>,
  python3-typing-extensions (>= 4.2.0) <!nocheck>,
- python3-tz <!nocheck>,
  tzdata-legacy <!nocheck>,
 Build-Depends-Indep:
  dh-sequence-sphinxdoc <!nodoc>,
@@ -46,10 +45,10 @@ Build-Depends-Indep:
  python3-sphinx-copybutton <!nodoc>,
  python3-sphinx-design <!nodoc>,
 # python-matplotlib-doc <!nodoc>,  # missing
-Standards-Version: 4.7.2
+Standards-Version: 4.7.4
 Vcs-Git: https://salsa.debian.org/python-team/packages/numpy.git
 Vcs-Browser: https://salsa.debian.org/python-team/packages/numpy
-Homepage: http://www.numpy.org/
+Homepage: https://www.numpy.org/
 Testsuite: autopkgtest-pkg-pybuild
 Description: Python library for numerical computations
  NumPy contains a powerful N-dimensional array object, sophisticated
@@ -81,26 +80,6 @@ Description: ${source:Synopsis} (Python 3)
  ${source:Extended-Description}
  .
  This package installs NumPy for Python 3.
-
-Package: python-numpy-doc
-Depends:
- ${misc:Depends},
- ${sphinxdoc:Depends},
-Suggests:
- python-imageio-doc,
- python-pandas-doc,
- python-pytest-doc,
- python-scipy-doc,
- python-skimage-doc,
- python3-doc,
-Section: doc
-Architecture: all
-Multi-Arch: foreign
-Build-Profiles: <!nodoc>
-Description: ${source:Synopsis} (Documentation)
- ${source:Extended-Description}
- .
- This package contains documentation for NumPy and f2py.
 
 Package: python3-numpy-dev
 Architecture: any

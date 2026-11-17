@@ -396,6 +396,11 @@ struct TestNaN {
     HWY_ASSERT_NAN(d, Min(nan, nan));
     HWY_ASSERT_NAN(d, Max(nan, nan));
 
+    HWY_ASSERT_VEC_EQ(d, v1, MinNumber(nan, v1));
+    HWY_ASSERT_VEC_EQ(d, v1, MaxNumber(nan, v1));
+    HWY_ASSERT_VEC_EQ(d, v1, MinNumber(v1, nan));
+    HWY_ASSERT_VEC_EQ(d, v1, MaxNumber(v1, nan));
+
     // AbsDiff
     HWY_ASSERT_NAN(d, AbsDiff(nan, v1));
     HWY_ASSERT_NAN(d, AbsDiff(v1, nan));
@@ -543,7 +548,7 @@ struct TestBlocks {
 };
 
 HWY_NOINLINE void TestAllBlocks() {
-  ForAllTypes(ForPartialVectors<TestDFromV>());
+  ForAllTypes(ForPartialVectors<TestBlocks>());
 }
 
 struct TestBlockDFromD {

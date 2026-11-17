@@ -3,7 +3,7 @@ Date: Sun, 3 Dec 2023 11:24:19 -0400
 Subject: /usr/include is a viable include dir
 
 Bug-Debian: https://bugs.debian.org/999812
-Forwarded: no
+Forwarded: not-needed
 Last-Update: 2021-11-11
 
 Upstream removed /usr/include from the default include locations, which breaks
@@ -13,7 +13,7 @@ the distutils test.  Revert of 6115fc52703baf07d4cfc629efb58866f0d16856.
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/numpy/distutils/system_info.py b/numpy/distutils/system_info.py
-index 6478548..eed09e6 100644
+index e428b47..ac83d74 100644
 --- a/numpy/distutils/system_info.py
 +++ b/numpy/distutils/system_info.py
 @@ -330,7 +330,7 @@ else:

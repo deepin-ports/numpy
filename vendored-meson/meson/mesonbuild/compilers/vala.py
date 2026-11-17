@@ -8,16 +8,17 @@ import typing as T
 
 from .. import mlog
 from .. import mesonlib
-from ..mesonlib import EnvironmentException, version_compare, LibType, OptionKey
+from ..mesonlib import EnvironmentException, version_compare, LibType
+from ..options import OptionKey
 from .compilers import CompileCheckMode, Compiler
-from ..arglist import CompilerArgs
 
 if T.TYPE_CHECKING:
-    from ..coredata import KeyedOptionDictType
+    from ..arglist import CompilerArgs
     from ..envconfig import MachineInfo
     from ..environment import Environment
     from ..mesonlib import MachineChoice
     from ..dependencies import Dependency
+    from ..build import BuildTarget
 
 class ValaCompiler(Compiler):
 
@@ -30,6 +31,7 @@ class ValaCompiler(Compiler):
         self.version = version
         self.base_options = {OptionKey('b_colorout')}
         self.force_link = False
+        self._has_color_support = version_compare(self.version, '>=0.37.1')
 
     def needs_static_linker(self) -> bool:
         return False # Because compiles into C.
@@ -79,7 +81,7 @@ class ValaCompiler(Compiler):
         return ['--fatal-warnings']
 
     def get_colorout_args(self, colortype: str) -> T.List[str]:
-        if version_compare(self.version, '>=0.37.1'):
+        if self._has_color_support:
             return ['--color=' + colortype]
         return []
 
@@ -111,7 +113,7 @@ class ValaCompiler(Compiler):
                 raise EnvironmentException(msg)
 
     def find_library(self, libname: str, env: 'Environment', extra_dirs: T.List[str],
-                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True) -> T.Optional[T.List[str]]:
+                     libtype: LibType = LibType.PREFER_SHARED, lib_prefix_warning: bool = True, ignore_system_dirs: bool = False) -> T.Optional[T.List[str]]:
         if extra_dirs and isinstance(extra_dirs, str):
             extra_dirs = [extra_dirs]
         # Valac always looks in the default vapi dir, so only search there if
@@ -139,7 +141,7 @@ class ValaCompiler(Compiler):
     def thread_link_flags(self, env: 'Environment') -> T.List[str]:
         return []
 
-    def get_option_link_args(self, options: 'KeyedOptionDictType') -> T.List[str]:
+    def get_option_link_args(self, target: 'BuildTarget', env: 'Environment', subproject: T.Optional[str] = None) -> T.List[str]:
         return []
 
     def build_wrapper_args(self, env: 'Environment',

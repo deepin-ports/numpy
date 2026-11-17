@@ -81,9 +81,9 @@ For example::
     >>> y.base is None
     True
 
-    Here, ``y`` is a copy, as signified by the :attr:`base <.ndarray.base>`
-    attribute. We can also confirm this by assigning new values to ``x[[1, 2]]``
-    which in turn will not affect ``y`` at all::
+Here, ``y`` is a copy, as signified by the :attr:`base <.ndarray.base>`
+attribute. We can also confirm this by assigning new values to ``x[[1, 2]]``
+which in turn will not affect ``y`` at all::
 
     >>> x[[1, 2]] = [[10, 11, 12], [13, 14, 15]]
     >>> x
@@ -123,8 +123,8 @@ shape attribute of the array. For example::
     AttributeError: Incompatible shape for in-place modification. Use
     `.reshape()` to make a copy with the desired shape.
 
-Taking the example of another operation, :func:`.ravel` returns a contiguous
-flattened view of the array wherever possible. On the other hand,
+Taking the example of another operation, :func:`numpy.ravel` returns a
+contiguous flattened view of the array wherever possible. On the other hand,
 :meth:`.ndarray.flatten` always returns a flattened copy of the array.
 However, to guarantee a view in most cases, ``x.reshape(-1)`` may be preferable.
 

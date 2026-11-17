@@ -16,13 +16,14 @@ from ..dependencies.detect import get_dep_identifier, find_external_dependency
 from ..dependencies.python import BasicPythonExternalProgram, python_factory, _PythonDependencyBase
 from ..interpreter import extract_required_kwarg, permitted_dependency_kwargs, primitives as P_OBJ
 from ..interpreter.interpreterobjects import _ExternalProgramHolder
-from ..interpreter.type_checking import NoneType, PRESERVE_PATH_KW, SHARED_MOD_KWS
+from ..interpreter.type_checking import NoneType, DEPENDENCY_KWS, PRESERVE_PATH_KW, SHARED_MOD_KWS
 from ..interpreterbase import (
     noPosargs, noKwargs, permittedKwargs, ContainerTypeInfo,
     InvalidArguments, typed_pos_args, typed_kwargs, KwargInfo,
-    FeatureNew, FeatureNewKwargs, disablerIfNotFound
+    FeatureNew, FeatureNewKwargs, disablerIfNotFound, InterpreterObject
 )
-from ..mesonlib import MachineChoice, OptionKey
+from ..mesonlib import MachineChoice
+from ..options import OptionKey
 from ..programs import ExternalProgram, NonExistingExternalProgram
 
 if T.TYPE_CHECKING:
@@ -82,13 +83,13 @@ class PythonExternalProgram(BasicPythonExternalProgram):
         if not state:
             # This happens only from run_project_tests.py
             return rel_path
-        value = T.cast('str', state.get_option(f'{key}dir', module='python'))
+        value = T.cast('str', state.get_option(f'python.{key}dir'))
         if value:
-            if state.is_user_defined_option('install_env', module='python'):
+            if state.is_user_defined_option('python.install_env'):
                 raise mesonlib.MesonException(f'python.{key}dir and python.install_env are mutually exclusive')
             return value
 
-        install_env = state.get_option('install_env', module='python')
+        install_env = state.get_option('python.install_env')
         if install_env == 'auto':
             install_env = 'venv' if self.info['is_venv'] else 'system'
 
@@ -112,7 +113,7 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
     def __init__(self, python: 'PythonExternalProgram', interpreter: 'Interpreter'):
         _ExternalProgramHolder.__init__(self, python, interpreter)
         info = python.info
-        prefix = self.interpreter.environment.coredata.get_option(mesonlib.OptionKey('prefix'))
+        prefix = self.interpreter.environment.coredata.optstore.get_value_for(OptionKey('prefix'))
         assert isinstance(prefix, str), 'for mypy'
         self.variables = info['variables']
         self.suffix = info['suffix']
@@ -125,23 +126,11 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
         self.platform = info['platform']
         self.is_pypy = info['is_pypy']
         self.link_libpython = info['link_libpython']
-        self.methods.update({
-            'extension_module': self.extension_module_method,
-            'dependency': self.dependency_method,
-            'install_sources': self.install_sources_method,
-            'get_install_dir': self.get_install_dir_method,
-            'language_version': self.language_version_method,
-            'found': self.found_method,
-            'has_path': self.has_path_method,
-            'get_path': self.get_path_method,
-            'has_variable': self.has_variable_method,
-            'get_variable': self.get_variable_method,
-            'path': self.path_method,
-        })
 
     @permittedKwargs(mod_kwargs)
     @typed_pos_args('python.extension_module', str, varargs=(str, mesonlib.File, CustomTarget, CustomTargetIndex, GeneratedList, StructuredSources, ExtractedObjects, BuildTarget))
     @typed_kwargs('python.extension_module', *_MOD_KWARGS, _DEFAULTABLE_SUBDIR_KW, _LIMITED_API_KW, allow_unknown=True)
+    @InterpreterObject.method('extension_module')
     def extension_module_method(self, args: T.Tuple[str, T.List[BuildTargetSource]], kwargs: ExtensionModuleKw) -> 'SharedModule':
         if 'install_dir' in kwargs:
             if kwargs['subdir'] is not None:
@@ -168,7 +157,7 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
                                   self.current_node)
 
         limited_api_version = kwargs.pop('limited_api')
-        allow_limited_api = self.interpreter.environment.coredata.get_option(OptionKey('allow_limited_api', module='python'))
+        allow_limited_api = self.interpreter.environment.coredata.optstore.get_value_for(OptionKey('python.allow_limited_api'))
         if limited_api_version != '' and allow_limited_api:
 
             target_suffix = self.limited_api_suffix
@@ -267,6 +256,8 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
     @permittedKwargs(permitted_dependency_kwargs | {'embed'})
     @FeatureNewKwargs('python_installation.dependency', '0.53.0', ['embed'])
     @noPosargs
+    @typed_kwargs('python_installation.dependency', *DEPENDENCY_KWS, allow_unknown=True)
+    @InterpreterObject.method('dependency')
     def dependency_method(self, args: T.List['TYPE_var'], kwargs: 'TYPE_kwargs') -> 'Dependency':
         disabled, required, feature = extract_required_kwarg(kwargs, self.subproject)
         if disabled:
@@ -286,6 +277,7 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
         PRESERVE_PATH_KW,
         KwargInfo('install_tag', (str, NoneType), since='0.60.0')
     )
+    @InterpreterObject.method('install_sources')
     def install_sources_method(self, args: T.Tuple[T.List[T.Union[str, mesonlib.File]]],
                                kwargs: 'PyInstallKw') -> 'Data':
         self.held_object.run_bytecompile[self.version] = True
@@ -300,6 +292,7 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
 
     @noPosargs
     @typed_kwargs('python_installation.install_dir', _PURE_KW, _SUBDIR_KW)
+    @InterpreterObject.method('get_install_dir')
     def get_install_dir_method(self, args: T.List['TYPE_var'], kwargs: 'PyInstallKw') -> str:
         self.held_object.run_bytecompile[self.version] = True
         pure = kwargs['pure'] if kwargs['pure'] is not None else self.pure
@@ -317,16 +310,19 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
 
     @noPosargs
     @noKwargs
+    @InterpreterObject.method('language_version')
     def language_version_method(self, args: T.List['TYPE_var'], kwargs: 'TYPE_kwargs') -> str:
         return self.version
 
     @typed_pos_args('python_installation.has_path', str)
     @noKwargs
+    @InterpreterObject.method('has_path')
     def has_path_method(self, args: T.Tuple[str], kwargs: 'TYPE_kwargs') -> bool:
         return args[0] in self.paths
 
     @typed_pos_args('python_installation.get_path', str, optargs=[object])
     @noKwargs
+    @InterpreterObject.method('get_path')
     def get_path_method(self, args: T.Tuple[str, T.Optional['TYPE_var']], kwargs: 'TYPE_kwargs') -> 'TYPE_var':
         path_name, fallback = args
         try:
@@ -338,11 +334,13 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
 
     @typed_pos_args('python_installation.has_variable', str)
     @noKwargs
+    @InterpreterObject.method('has_variable')
     def has_variable_method(self, args: T.Tuple[str], kwargs: 'TYPE_kwargs') -> bool:
         return args[0] in self.variables
 
     @typed_pos_args('python_installation.get_variable', str, optargs=[object])
     @noKwargs
+    @InterpreterObject.method('get_variable')
     def get_variable_method(self, args: T.Tuple[str, T.Optional['TYPE_var']], kwargs: 'TYPE_kwargs') -> 'TYPE_var':
         var_name, fallback = args
         try:
@@ -355,6 +353,7 @@ class PythonInstallation(_ExternalProgramHolder['PythonExternalProgram']):
     @noPosargs
     @noKwargs
     @FeatureNew('Python module path method', '0.50.0')
+    @InterpreterObject.method('path')
     def path_method(self, args: T.List['TYPE_var'], kwargs: 'TYPE_kwargs') -> str:
         return super().path_method(args, kwargs)
 
@@ -373,7 +372,7 @@ class PythonModule(ExtensionModule):
     def _get_install_scripts(self) -> T.List[mesonlib.ExecutableSerialisation]:
         backend = self.interpreter.backend
         ret = []
-        optlevel = self.interpreter.environment.coredata.get_option(mesonlib.OptionKey('bytecompile', module='python'))
+        optlevel = self.interpreter.environment.coredata.optstore.get_value_for(OptionKey('python.bytecompile'))
         if optlevel == -1:
             return ret
         if not any(PythonExternalProgram.run_bytecompile.values()):

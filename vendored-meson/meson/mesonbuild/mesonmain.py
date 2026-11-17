@@ -65,7 +65,7 @@ class CommandLineParser:
     def __init__(self) -> None:
         # only import these once we do full argparse processing
         from . import mconf, mdist, minit, minstall, mintro, msetup, mtest, rewriter, msubprojects, munstable_coredata, mcompile, mdevenv, mformat
-        from .scripts import env2mfile
+        from .scripts import env2mfile, reprotest
         from .wrap import wraptool
         import shutil
 
@@ -103,6 +103,8 @@ class CommandLineParser:
                          help_msg='Run commands in developer environment')
         self.add_command('env2mfile', env2mfile.add_arguments, env2mfile.run,
                          help_msg='Convert current environment to a cross or native file')
+        self.add_command('reprotest', reprotest.add_arguments, reprotest.run,
+                         help_msg='Test if project builds reproducibly')
         self.add_command('format', mformat.add_arguments, mformat.run, aliases=['fmt'],
                          help_msg='Format meson source file')
         # Add new commands above this line to list them in help command
@@ -232,6 +234,25 @@ def set_meson_command(mainfile: str) -> None:
     from . import mesonlib
     mesonlib.set_meson_command(mainfile)
 
+def validate_original_args(args):
+    import mesonbuild.options
+    import itertools
+
+    def has_startswith(coll, target):
+        for entry in coll:
+            if entry.startswith(target + '=') or entry == target:
+                return True
+        return False
+    #ds = [x for x in args if x.startswith('-D')]
+    #longs = [x for x in args if x.startswith('--')]
+    for optionkey in itertools.chain(mesonbuild.options.BUILTIN_DIR_OPTIONS, mesonbuild.options.BUILTIN_CORE_OPTIONS):
+        longarg = mesonbuild.options.argparse_name_to_arg(optionkey.name)
+        shortarg = f'-D{optionkey.name}'
+        if has_startswith(args, longarg) and has_startswith(args, shortarg):
+            sys.exit(
+                f'Got argument {optionkey.name} as both {shortarg} and {longarg}. Pick one.')
+
+
 def run(original_args: T.List[str], mainfile: str) -> int:
     if os.environ.get('MESON_SHOW_DEPRECATIONS'):
         # workaround for https://bugs.python.org/issue34624
@@ -279,11 +300,12 @@ def run(original_args: T.List[str], mainfile: str) -> int:
             return run_script_command(args[1], args[2:])
 
     set_meson_command(mainfile)
+    validate_original_args(args)
     return CommandLineParser().run(args)
 
 def main() -> int:
     # Always resolve the command path so Ninja can find it for regen, tests, etc.
-    if 'meson.exe' in sys.executable:
+    if getattr(sys, 'frozen', False):
         assert os.path.isabs(sys.executable)
         launcher = sys.executable
     else:

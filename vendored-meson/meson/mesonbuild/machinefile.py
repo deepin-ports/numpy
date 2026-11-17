@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2013-2024 Contributors to the The Meson project
+# Copyright © 2024 Intel Corporation
 
+from __future__ import annotations
 import typing as T
 import configparser
 import os
@@ -10,11 +12,8 @@ from . import mparser
 from .mesonlib import MesonException
 
 if T.TYPE_CHECKING:
-    from .compilers import Compiler
     from .coredata import StrOrBytesPath
-
-    CompilersDict = T.Dict[str, Compiler]
-
+    from .options import ElementaryOptionValues
 
 class CmdLineFileParser(configparser.ConfigParser):
     def __init__(self) -> None:
@@ -33,8 +32,8 @@ class CmdLineFileParser(configparser.ConfigParser):
 class MachineFileParser():
     def __init__(self, filenames: T.List[str], sourcedir: str) -> None:
         self.parser = CmdLineFileParser()
-        self.constants: T.Dict[str, T.Union[str, bool, int, T.List[str]]] = {'True': True, 'False': False}
-        self.sections: T.Dict[str, T.Dict[str, T.Union[str, bool, int, T.List[str]]]] = {}
+        self.constants: T.Dict[str, ElementaryOptionValues] = {'True': True, 'False': False}
+        self.sections: T.Dict[str, T.Dict[str, ElementaryOptionValues]] = {}
 
         for fname in filenames:
             try:
@@ -59,9 +58,9 @@ class MachineFileParser():
                 continue
             self.sections[s] = self._parse_section(s)
 
-    def _parse_section(self, s: str) -> T.Dict[str, T.Union[str, bool, int, T.List[str]]]:
+    def _parse_section(self, s: str) -> T.Dict[str, ElementaryOptionValues]:
         self.scope = self.constants.copy()
-        section: T.Dict[str, T.Union[str, bool, int, T.List[str]]] = {}
+        section: T.Dict[str, ElementaryOptionValues] = {}
         for entry, value in self.parser.items(s):
             if ' ' in entry or '\t' in entry or "'" in entry or '"' in entry:
                 raise MesonException(f'Malformed variable name {entry!r} in machine file.')
@@ -80,7 +79,7 @@ class MachineFileParser():
             self.scope[entry] = res
         return section
 
-    def _evaluate_statement(self, node: mparser.BaseNode) -> T.Union[str, bool, int, T.List[str]]:
+    def _evaluate_statement(self, node: mparser.BaseNode) -> ElementaryOptionValues:
         if isinstance(node, (mparser.StringNode)):
             return node.value
         elif isinstance(node, mparser.BooleanNode):
@@ -90,28 +89,30 @@ class MachineFileParser():
         elif isinstance(node, mparser.ParenthesizedNode):
             return self._evaluate_statement(node.inner)
         elif isinstance(node, mparser.ArrayNode):
-            # TODO: This is where recursive types would come in handy
-            return [self._evaluate_statement(arg) for arg in node.args.arguments]
+            a = [self._evaluate_statement(arg) for arg in node.args.arguments]
+            assert all(isinstance(s, str) for s in a), 'for mypy'
+            return T.cast('T.List[str]', a)
         elif isinstance(node, mparser.IdNode):
             return self.scope[node.value]
         elif isinstance(node, mparser.ArithmeticNode):
             l = self._evaluate_statement(node.left)
             r = self._evaluate_statement(node.right)
             if node.operation == 'add':
-                if (isinstance(l, str) and isinstance(r, str)) or \
-                   (isinstance(l, list) and isinstance(r, list)):
+                if isinstance(l, str) and isinstance(r, str):
+                    return l + r
+                if isinstance(l, list) and isinstance(r, list):
                     return l + r
             elif node.operation == 'div':
                 if isinstance(l, str) and isinstance(r, str):
                     return os.path.join(l, r)
         raise MesonException('Unsupported node type')
 
-def parse_machine_files(filenames: T.List[str], sourcedir: str):
+def parse_machine_files(filenames: T.List[str], sourcedir: str) -> T.Dict[str, T.Dict[str, ElementaryOptionValues]]:
     parser = MachineFileParser(filenames, sourcedir)
     return parser.sections
 
 
 class MachineFileStore:
-    def __init__(self, native_files, cross_files, source_dir):
-        self.native = MachineFileParser(native_files if native_files is not None else [], source_dir).sections
-        self.cross = MachineFileParser(cross_files if cross_files is not None else [], source_dir).sections
+    def __init__(self, native_files: T.Optional[T.List[str]], cross_files: T.Optional[T.List[str]], source_dir: str):
+        self.native = parse_machine_files(native_files if native_files is not None else [], source_dir)
+        self.cross = parse_machine_files(cross_files if cross_files is not None else [], source_dir)

@@ -495,15 +495,17 @@ static HWY_NOINLINE void TestRandomGenerator() {
   // Ensure lower and upper 32 bits are uniformly distributed.
   uint64_t sum_lo = 0, sum_hi = 0;
   for (size_t i = 0; i < 1000; ++i) {
-    const uint64_t bits = detail::RandomBits(state);
+    const uint64_t bits = RandomBits(state);
     sum_lo += bits & 0xFFFFFFFF;
     sum_hi += bits >> 32;
   }
-  const double expected = 1000 * (1ULL << 31);
-  HWY_ASSERT(0.9 * expected <= static_cast<double>(sum_lo) &&
-             static_cast<double>(sum_lo) <= 1.1 * expected);
-  HWY_ASSERT(0.9 * expected <= static_cast<double>(sum_hi) &&
-             static_cast<double>(sum_hi) <= 1.1 * expected);
+  {
+    const double expected = 1000 * (1ULL << 31);
+    HWY_ASSERT(0.9 * expected <= static_cast<double>(sum_lo) &&
+               static_cast<double>(sum_lo) <= 1.1 * expected);
+    HWY_ASSERT(0.9 * expected <= static_cast<double>(sum_hi) &&
+               static_cast<double>(sum_hi) <= 1.1 * expected);
+  }
 
   const size_t lanes_per_block = HWY_MAX(64 / sizeof(TU), N);  // power of two
 
@@ -513,7 +515,7 @@ static HWY_NOINLINE void TestRandomGenerator() {
     uint64_t sum = 0;
     constexpr size_t kReps = 10000;
     for (size_t rep = 0; rep < kReps; ++rep) {
-      const uint32_t bits = detail::RandomBits(state) & 0xFFFFFFFF;
+      const uint32_t bits = RandomBits(state) & 0xFFFFFFFF;
       const size_t index = detail::RandomChunkIndex(num_blocks, bits);
       HWY_ASSERT(((index + 1) * lanes_per_block) <=
                  num_blocks * lanes_per_block);
